@@ -21,12 +21,16 @@ dispatcher = Dispatcher(storage=storage)
 logging.basicConfig(level=logging.INFO)
 
 # Состояния для создания мероприятия
+
+
 class CreateEventSeries(StatesGroup):
     waiting_for_name = State()
     waiting_for_start_date = State()
     waiting_for_end_date = State()
 
 # Состояния для создания события
+
+
 class CreateEvent(StatesGroup):
     waiting_for_series = State()
     waiting_for_event_name = State()
@@ -35,7 +39,23 @@ class CreateEvent(StatesGroup):
     waiting_for_room = State()
     waiting_for_speakers = State()
 
+# Состояния для удаления мероприятия
+
+
+class DeleteEventSeries(StatesGroup):
+    waiting_for_series_to_delete = State()
+    waiting_for_confirmation = State()
+
+# Состояния для удаления события
+
+
+class DeleteEvent(StatesGroup):
+    waiting_for_event_to_delete = State()
+    waiting_for_confirmation = State()
+
 # Команда /start для начала взаимодействия
+
+
 @dispatcher.message(Command(commands=["start"]))
 async def cmd_start(message: types.Message):
     db: Session = next(get_db())
@@ -53,11 +73,13 @@ async def cmd_start(message: types.Message):
         await message.answer("Нет запланированных мероприятий.")
 
 # Обработчик для отображения событий внутри выбранной серии мероприятий
+
+
 @dispatcher.callback_query(lambda c: c.data.startswith("series_"))
 async def show_events(callback: CallbackQuery):
     series_id = int(callback.data.split("_")[1])
     db: Session = next(get_db())
-    
+
     # Получаем список событий для выбранной серии мероприятий
     events = db.query(Event).filter(Event.series_id == series_id).all()
 
@@ -73,11 +95,13 @@ async def show_events(callback: CallbackQuery):
         await callback.message.answer("Нет событий в этом мероприятии.")
 
 # Обработчик для отображения подробного описания события
+
+
 @dispatcher.callback_query(lambda c: c.data.startswith("event_"))
 async def show_event_details(callback: CallbackQuery):
     event_id = int(callback.data.split("_")[1])
     db: Session = next(get_db())
-    
+
     # Получаем подробную информацию о событии
     event = db.query(Event).filter(Event.id == event_id).first()
 
@@ -94,11 +118,13 @@ async def show_event_details(callback: CallbackQuery):
         await callback.message.answer("Событие не найдено.")
 
 # Обработчик inline-запросов
+
+
 @dispatcher.inline_query()
 async def inline_query_handler(inline_query: InlineQuery):
     db: Session = next(get_db())
     events = db.query(Event).all()
-    
+
     # Создаем inline результаты
     results = [
         InlineQueryResultArticle(
@@ -116,12 +142,16 @@ async def inline_query_handler(inline_query: InlineQuery):
     await inline_query.answer(results)
 
 # Обработчик команды /create для начала создания мероприятия
+
+
 @dispatcher.message(Command(commands=["create"]))
 async def cmd_create(message: types.Message, state: FSMContext):
     await message.answer("Введите название мероприятия:")
     await state.set_state(CreateEventSeries.waiting_for_name)
 
 # Обработчик для получения названия мероприятия
+
+
 @dispatcher.message(CreateEventSeries.waiting_for_name)
 async def event_series_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text)
@@ -129,6 +159,8 @@ async def event_series_name(message: types.Message, state: FSMContext):
     await state.set_state(CreateEventSeries.waiting_for_start_date)
 
 # Обработчик для получения даты начала мероприятия
+
+
 @dispatcher.message(CreateEventSeries.waiting_for_start_date)
 async def event_series_start_date(message: types.Message, state: FSMContext):
     try:
@@ -140,6 +172,8 @@ async def event_series_start_date(message: types.Message, state: FSMContext):
         await message.answer("Неправильный формат даты. Попробуйте еще раз (ГГГГ-ММ-ДД).")
 
 # Обработчик для получения даты окончания мероприятия
+
+
 @dispatcher.message(CreateEventSeries.waiting_for_end_date)
 async def event_series_end_date(message: types.Message, state: FSMContext):
     try:
@@ -155,7 +189,8 @@ async def event_series_end_date(message: types.Message, state: FSMContext):
 
         # Сохранение мероприятия в базу данных
         db: Session = next(get_db())
-        new_series = EventSeries(name=name, start_date=start_date, end_date=end_date)
+        new_series = EventSeries(
+            name=name, start_date=start_date, end_date=end_date)
         db.add(new_series)
         db.commit()
 
@@ -165,6 +200,8 @@ async def event_series_end_date(message: types.Message, state: FSMContext):
         await message.answer("Неправильный формат даты. Попробуйте еще раз (ГГГГ-ММ-ДД).")
 
 # Обработчик команды /create_event для начала создания события
+
+
 @dispatcher.message(Command(commands=["create_event"]))
 async def cmd_create_event(message: types.Message, state: FSMContext):
     db: Session = next(get_db())
@@ -183,6 +220,8 @@ async def cmd_create_event(message: types.Message, state: FSMContext):
         await message.answer("Нет доступных мероприятий для добавления событий.")
 
 # Обработчик выбора мероприятия для события
+
+
 @dispatcher.callback_query(lambda c: c.data.startswith("select_series_"))
 async def select_series(callback: CallbackQuery, state: FSMContext):
     series_id = int(callback.data.split("_")[2])
@@ -191,6 +230,8 @@ async def select_series(callback: CallbackQuery, state: FSMContext):
     await state.set_state(CreateEvent.waiting_for_event_name)
 
 # Обработчик для получения названия события
+
+
 @dispatcher.message(CreateEvent.waiting_for_event_name)
 async def event_name(message: types.Message, state: FSMContext):
     await state.update_data(event_name=message.text)
@@ -198,6 +239,8 @@ async def event_name(message: types.Message, state: FSMContext):
     await state.set_state(CreateEvent.waiting_for_date)
 
 # Обработчик для получения даты события
+
+
 @dispatcher.message(CreateEvent.waiting_for_date)
 async def event_date(message: types.Message, state: FSMContext):
     try:
@@ -209,6 +252,8 @@ async def event_date(message: types.Message, state: FSMContext):
         await message.answer("Неправильный формат даты. Попробуйте еще раз (ГГГГ-ММ-ДД).")
 
 # Обработчик для получения времени события
+
+
 @dispatcher.message(CreateEvent.waiting_for_time)
 async def event_time(message: types.Message, state: FSMContext):
     try:
@@ -219,51 +264,171 @@ async def event_time(message: types.Message, state: FSMContext):
     except ValueError:
         await message.answer("Неправильный формат времени. Попробуйте еще раз (ЧЧ:ММ).")
 
-# Обработчик для получения места проведения события
+# Обработчик для получения места события
+
+
 @dispatcher.message(CreateEvent.waiting_for_room)
 async def event_room(message: types.Message, state: FSMContext):
     await state.update_data(room=message.text)
-    await message.answer("Введите имена спикеров (если есть, иначе введите 'нет'):")
+    await message.answer("Введите имена спикеров (через запятую) или пропустите шаг:")
     await state.set_state(CreateEvent.waiting_for_speakers)
 
 # Обработчик для получения спикеров события
+
+
 @dispatcher.message(CreateEvent.waiting_for_speakers)
 async def event_speakers(message: types.Message, state: FSMContext):
-    speakers = message.text if message.text.lower() != 'нет' else None
-    await state.update_data(speakers=speakers)
-
-    # Сохранение события в базе данных
+    speakers = message.text if message.text else None
     data = await state.get_data()
-    series_id = data['series_id']
-    event_name = data['event_name']
-    date = data['date']
-    time = data['time']
-    room = data['room']
 
     db: Session = next(get_db())
     new_event = Event(
-        event=event_name,
-        date=date,
-        time=time,
-        room=room,
-        speakers=speakers,
-        series_id=series_id
+        series_id=data['series_id'],
+        event=data['event_name'],
+        date=data['date'],
+        time=data['time'],
+        room=data['room'],
+        speakers=speakers
     )
     db.add(new_event)
     db.commit()
 
-    await message.answer(f"Событие '{event_name}' добавлено в мероприятие.")
+    await message.answer(f"Событие '{data['event_name']}' добавлено.")
     await state.clear()  # Завершаем FSM
 
-# Запуск бота
-async def main():
-    init_db()
-    await dispatcher.start_polling(bot)
+# Команда /delete для удаления мероприятия
 
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    try:
-        import asyncio
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print('Выход')
+
+@dispatcher.message(Command(commands=["delete"]))
+async def cmd_delete_event_series(message: types.Message, state: FSMContext):
+    db: Session = next(get_db())
+    event_series = db.query(EventSeries).all()
+
+    if event_series:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"{series.name} ({series.start_date} - {series.end_date})",
+                callback_data=f"delete_series_{series.id}")]
+            for series in event_series
+        ])
+        await message.answer("Выберите мероприятие для удаления:", reply_markup=keyboard)
+        await state.set_state(DeleteEventSeries.waiting_for_series_to_delete)
+    else:
+        await message.answer("Нет доступных мероприятий для удаления.")
+
+# Обработчик для выбора мероприятия, которое нужно удалить
+
+
+@dispatcher.callback_query(lambda c: c.data.startswith("delete_series_"))
+async def delete_series(callback: CallbackQuery, state: FSMContext):
+    series_id = int(callback.data.split("_")[2])
+    await state.update_data(series_id=series_id)
+
+    # Подтверждение удаления
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="Да", callback_data="confirm_delete_series")],
+        [InlineKeyboardButton(text="Нет", callback_data="cancel_delete")]
+    ])
+    await callback.message.answer("Вы уверены, что хотите удалить это мероприятие и все его события?", reply_markup=keyboard)
+    await state.set_state(DeleteEventSeries.waiting_for_confirmation)
+
+# Обработчик подтверждения удаления мероприятия
+
+
+@dispatcher.callback_query(lambda c: c.data == "confirm_delete_series")
+async def confirm_delete_series(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    series_id = data['series_id']
+
+    db: Session = next(get_db())
+    series = db.query(EventSeries).filter(EventSeries.id == series_id).first()
+
+    if series:
+        # Удаление всех связанных событий
+        db.query(Event).filter(Event.series_id == series_id).delete()
+        # Удаление самого мероприятия
+        db.delete(series)
+        db.commit()
+        await callback.message.answer(f"Мероприятие '{series.name}' и все его события удалены.")
+    else:
+        await callback.message.answer("Мероприятие не найдено.")
+
+    await state.clear()  # Завершаем FSM
+
+# Обработчик отмены удаления
+
+
+@dispatcher.callback_query(lambda c: c.data == "cancel_delete")
+async def cancel_delete(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Удаление отменено.")
+    await state.clear()
+
+# Команда /delete_event для удаления события
+
+
+@dispatcher.message(Command(commands=["delete_event"]))
+async def cmd_delete_event(message: types.Message, state: FSMContext):
+    db: Session = next(get_db())
+    events = db.query(Event).all()
+
+    if events:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"{event.event} ({event.date} {event.time})",
+                callback_data=f"delete_event_{event.id}")]
+            for event in events
+        ])
+        await message.answer("Выберите событие для удаления:", reply_markup=keyboard)
+        await state.set_state(DeleteEvent.waiting_for_event_to_delete)
+    else:
+        await message.answer("Нет доступных событий для удаления.")
+
+# Обработчик для выбора события, которое нужно удалить
+
+
+@dispatcher.callback_query(lambda c: c.data.startswith("delete_event_"))
+async def delete_event(callback: CallbackQuery, state: FSMContext):
+    event_id = int(callback.data.split("_")[2])
+    await state.update_data(event_id=event_id)
+
+    # Подтверждение удаления
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="Да", callback_data="confirm_delete_event")],
+        [InlineKeyboardButton(text="Нет", callback_data="cancel_delete_event")]
+    ])
+    await callback.message.answer("Вы уверены, что хотите удалить это событие?", reply_markup=keyboard)
+    await state.set_state(DeleteEvent.waiting_for_confirmation)
+
+# Обработчик подтверждения удаления события
+
+
+@dispatcher.callback_query(lambda c: c.data == "confirm_delete_event")
+async def confirm_delete_event(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    event_id = data['event_id']
+
+    db: Session = next(get_db())
+    event = db.query(Event).filter(Event.id == event_id).first()
+
+    if event:
+        db.delete(event)
+        db.commit()
+        await callback.message.answer(f"Событие '{event.event}' удалено.")
+    else:
+        await callback.message.answer("Событие не найдено.")
+
+    await state.clear()  # Завершаем FSM
+
+# Обработчик отмены удаления события
+
+
+@dispatcher.callback_query(lambda c: c.data == "cancel_delete_event")
+async def cancel_delete_event(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Удаление события отменено.")
+    await state.clear()
+
+if __name__ == "__main__":
+    init_db()  # Инициализация базы данных
+    dispatcher.run_polling(bot)
