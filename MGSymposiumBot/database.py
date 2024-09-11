@@ -19,6 +19,8 @@ class EventSeries(Base):
     name = Column(String, nullable=False)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
+    description = Column(String)  # Описание серии мероприятий
+    image_url = Column(String)  # Ссылка на фотографию серии мероприятий
     events = relationship("Event", back_populates="series")
 
 
@@ -32,6 +34,8 @@ class Event(Base):
     event = Column(String, nullable=False)
     room = Column(String, nullable=False)
     speakers = Column(String)
+    description = Column(String)  # Описание события
+    image_url = Column(String)  # Ссылка на фотографию события
     series = relationship("EventSeries", back_populates="events")
 
 
