@@ -397,28 +397,25 @@ async def cancel_delete_event(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
 
-
 # Машина состояний для обновления мероприятия
 class UpdateEventSeries(StatesGroup):
     waiting_for_name = State()
     waiting_for_start_date = State()
     waiting_for_end_date = State()
-    waiting_for_description = State()
-    waiting_for_photo_url = State()
 
 # Машина состояний для обновления события
+
+
 class UpdateEvent(StatesGroup):
     waiting_for_event_name = State()
     waiting_for_event_date = State()
     waiting_for_event_time = State()
-    waiting_for_location = State()
-    waiting_for_speakers = State()
-    waiting_for_description = State()
-    waiting_for_photo_url = State()
 
-### Команды для обновления мероприятия
+# Команды для обновления мероприятия
 
 # Шаг 1: Команда /update для начала процесса обновления мероприятия
+
+
 @dispatcher.message(Command(commands=["update"]))
 async def cmd_update_event_series(message: types.Message, state: FSMContext):
     db: Session = next(get_db())
@@ -437,6 +434,8 @@ async def cmd_update_event_series(message: types.Message, state: FSMContext):
         await message.answer("Нет мероприятий для редактирования.")
 
 # Шаг 2: Обработчик выбора мероприятия для редактирования
+
+
 @dispatcher.callback_query(lambda c: c.data.startswith("update_event_series_"))
 async def select_event_series_to_update(callback: CallbackQuery, state: FSMContext):
     series_id = int(callback.data.split("_")[3])  # Извлекаем series_id
@@ -447,6 +446,8 @@ async def select_event_series_to_update(callback: CallbackQuery, state: FSMConte
     await state.set_state(UpdateEventSeries.waiting_for_name)
 
 # Шаг 3: Обновление названия мероприятия
+
+
 @dispatcher.message(UpdateEventSeries.waiting_for_name)
 async def update_event_series_name(message: types.Message, state: FSMContext):
     new_name = message.text
@@ -457,6 +458,8 @@ async def update_event_series_name(message: types.Message, state: FSMContext):
     await state.set_state(UpdateEventSeries.waiting_for_start_date)
 
 # Шаг 4: Обновление даты начала мероприятия
+
+
 @dispatcher.message(UpdateEventSeries.waiting_for_start_date)
 async def update_event_series_start_date(message: types.Message, state: FSMContext):
     new_start_date = message.text
@@ -466,49 +469,25 @@ async def update_event_series_start_date(message: types.Message, state: FSMConte
     await message.answer("Введите новую дату окончания мероприятия (в формате YYYY-MM-DD):")
     await state.set_state(UpdateEventSeries.waiting_for_end_date)
 
-# Шаг 5: Обновление даты окончания мероприятия
+# Шаг 5: Обновление даты окончания и сохранение изменений
+
+
 @dispatcher.message(UpdateEventSeries.waiting_for_end_date)
 async def update_event_series_end_date(message: types.Message, state: FSMContext):
     new_end_date = message.text
-    await state.update_data(new_end_date=new_end_date)
-
-    # Запрашиваем новое описание
-    await message.answer("Введите новое описание мероприятия:")
-    await state.set_state(UpdateEventSeries.waiting_for_description)
-
-# Шаг 6: Обновление описания мероприятия
-@dispatcher.message(UpdateEventSeries.waiting_for_description)
-async def update_event_series_description(message: types.Message, state: FSMContext):
-    new_description = message.text
-    await state.update_data(new_description=new_description)
-
-    # Запрашиваем новый URL фото
-    await message.answer("Введите новый URL фото мероприятия (или отправьте 'none' для отсутствия фото):")
-    await state.set_state(UpdateEventSeries.waiting_for_photo_url)
-
-# Шаг 7: Обновление URL фото и сохранение изменений
-@dispatcher.message(UpdateEventSeries.waiting_for_photo_url)
-async def update_event_series_photo_url(message: types.Message, state: FSMContext):
-    new_photo_url = message.text
-    if new_photo_url.lower() == 'none':
-        new_photo_url = None
-    
     data = await state.get_data()
     series_id = data['series_id']
     new_name = data['new_name']
     new_start_date = data['new_start_date']
-    new_end_date = data['new_end_date']
-    new_description = data['new_description']
 
     db: Session = next(get_db())
-    event_series = db.query(EventSeries).filter(EventSeries.id == series_id).first()
+    event_series = db.query(EventSeries).filter(
+        EventSeries.id == series_id).first()
 
     if event_series:
         event_series.name = new_name
         event_series.start_date = new_start_date
         event_series.end_date = new_end_date
-        event_series.description = new_description
-        event_series.photo_url = new_photo_url
         db.commit()
 
         await message.answer(f"Мероприятие '{new_name}' успешно обновлено.")
@@ -516,9 +495,11 @@ async def update_event_series_photo_url(message: types.Message, state: FSMContex
         await message.answer("Мероприятие не найдено.")
     await state.clear()
 
-### Команды для обновления события
+# Команды для обновления события
 
 # Шаг 1: Команда /update_event для начала процесса обновления события
+
+
 @dispatcher.message(Command(commands=["update_event"]))
 async def cmd_update_event(message: types.Message, state: FSMContext):
     db: Session = next(get_db())
@@ -537,6 +518,8 @@ async def cmd_update_event(message: types.Message, state: FSMContext):
         await message.answer("Нет мероприятий для обновления событий.")
 
 # Шаг 2: Обработчик выбора мероприятия для редактирования события
+
+
 @dispatcher.callback_query(lambda c: c.data.startswith("select_event_series_"))
 async def select_event_series_for_update_event(callback: CallbackQuery, state: FSMContext):
     series_id = int(callback.data.split("_")[3])
@@ -558,6 +541,8 @@ async def select_event_series_for_update_event(callback: CallbackQuery, state: F
         await callback.message.answer("Нет событий для обновления.")
 
 # Шаг 3: Обработчик выбора события для обновления
+
+
 @dispatcher.callback_query(lambda c: c.data.startswith("update_selected_event_"))
 async def select_event_to_update(callback: CallbackQuery, state: FSMContext):
     event_id = int(callback.data.split("_")[3])
@@ -568,6 +553,8 @@ async def select_event_to_update(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UpdateEvent.waiting_for_event_name)
 
 # Шаг 4: Обновление названия события
+
+
 @dispatcher.message(UpdateEvent.waiting_for_event_name)
 async def update_event_name(message: types.Message, state: FSMContext):
     new_event_name = message.text
@@ -578,6 +565,8 @@ async def update_event_name(message: types.Message, state: FSMContext):
     await state.set_state(UpdateEvent.waiting_for_event_date)
 
 # Шаг 5: Обновление даты события
+
+
 @dispatcher.message(UpdateEvent.waiting_for_event_date)
 async def update_event_date(message: types.Message, state: FSMContext):
     new_event_date = message.text
@@ -587,61 +576,16 @@ async def update_event_date(message: types.Message, state: FSMContext):
     await message.answer("Введите новое время события (в формате HH:MM):")
     await state.set_state(UpdateEvent.waiting_for_event_time)
 
-# Шаг 6: Обновление времени события
+# Шаг 6: Обновление времени и сохранение изменений
+
+
 @dispatcher.message(UpdateEvent.waiting_for_event_time)
 async def update_event_time(message: types.Message, state: FSMContext):
     new_event_time = message.text
-    await state.update_data(new_event_time=new_event_time)
-
-    # Запрашиваем новое место проведения
-    await message.answer("Введите новое место проведения события:")
-    await state.set_state(UpdateEvent.waiting_for_location)
-
-# Шаг 7: Обновление места проведения
-@dispatcher.message(UpdateEvent.waiting_for_location)
-async def update_event_location(message: types.Message, state: FSMContext):
-    new_location = message.text
-    await state.update_data(new_location=new_location)
-
-    # Запрашиваем новых спикеров
-    await message.answer("Введите новых спикеров (через запятую):")
-    await state.set_state(UpdateEvent.waiting_for_speakers)
-
-# Шаг 8: Обновление спикеров
-@dispatcher.message(UpdateEvent.waiting_for_speakers)
-async def update_event_speakers(message: types.Message, state: FSMContext):
-    new_speakers = message.text
-    await state.update_data(new_speakers=new_speakers)
-
-    # Запрашиваем новое описание события
-    await message.answer("Введите новое описание события:")
-    await state.set_state(UpdateEvent.waiting_for_description)
-
-# Шаг 9: Обновление описания события
-@dispatcher.message(UpdateEvent.waiting_for_description)
-async def update_event_description(message: types.Message, state: FSMContext):
-    new_description = message.text
-    await state.update_data(new_description=new_description)
-
-    # Запрашиваем новый URL фото
-    await message.answer("Введите новый URL фото события (или отправьте 'none' для отсутствия фото):")
-    await state.set_state(UpdateEvent.waiting_for_photo_url)
-
-# Шаг 10: Обновление URL фото и сохранение изменений
-@dispatcher.message(UpdateEvent.waiting_for_photo_url)
-async def update_event_photo_url(message: types.Message, state: FSMContext):
-    new_photo_url = message.text
-    if new_photo_url.lower() == 'none':
-        new_photo_url = None
-    
     data = await state.get_data()
     event_id = data['event_id']
     new_event_name = data['new_event_name']
     new_event_date = data['new_event_date']
-    new_event_time = data['new_event_time']
-    new_location = data['new_location']
-    new_speakers = data['new_speakers']
-    new_description = data['new_description']
 
     db: Session = next(get_db())
     event = db.query(Event).filter(Event.id == event_id).first()
@@ -650,10 +594,6 @@ async def update_event_photo_url(message: types.Message, state: FSMContext):
         event.event = new_event_name
         event.date = new_event_date
         event.time = new_event_time
-        event.location = new_location
-        event.speakers = new_speakers
-        event.description = new_description
-        event.photo_url = new_photo_url
         db.commit()
 
         await message.answer(f"Событие '{new_event_name}' успешно обновлено.")
@@ -664,6 +604,7 @@ async def update_event_photo_url(message: types.Message, state: FSMContext):
 
 if __name__ == "__main__":
     init_db()
+
     async def main():
         await dispatcher.start_polling(bot)
     asyncio.run(main())
