@@ -315,47 +315,80 @@ async def cancel_delete(callback: CallbackQuery, state: FSMContext):
 @dispatcher.message(Command(commands=["delete_event"]))
 async def cmd_delete_event(message: types.Message, state: FSMContext):
     db: Session = next(get_db())
-    events = db.query(Event).all()
+    event_series = db.query(EventSeries).all()
+
+    if event_series:
+        # Генерируем список мероприятий для удаления события
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"{series.name} ({series.start_date} - {series.end_date})",
+                callback_data=f"delete_event_series_{series.id}")]
+            for series in event_series
+        ])
+        await message.answer("Выберите мероприятие, чтобы удалить событие:", reply_markup=keyboard)
+    else:
+        await message.answer("Нет мероприятий для удаления событий.")
+
+# Шаг 2: Обработчик выбора мероприятия для удаления события
+
+
+@dispatcher.callback_query(lambda c: c.data.startswith("delete_event_series_"))
+async def select_event_series_to_delete_event(callback: CallbackQuery, state: FSMContext):
+    series_id = int(callback.data.split("_")[3])  # Извлекаем series_id
+    await state.update_data(series_id=series_id)
+
+    # Получаем события для выбранного мероприятия
+    db: Session = next(get_db())
+    events = db.query(Event).filter(Event.series_id == series_id).all()
 
     if events:
+        # Генерируем список событий для удаления
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
                 text=f"{event.event} ({event.date} {event.time})",
-                callback_data=f"delete_event_{event.id}")]
+                callback_data=f"delete_selected_event_{event.id}")]
             for event in events
         ])
-        await message.answer("Выберите событие для удаления:", reply_markup=keyboard)
+        await callback.message.answer("Выберите событие для удаления:", reply_markup=keyboard)
     else:
-        await message.answer("Нет событий для удаления.")
+        await callback.message.answer("В этом мероприятии нет событий для удаления.")
+
+# Шаг 3: Обработчик выбора конкретного события для удаления
 
 
-@dispatcher.callback_query(lambda c: c.data.startswith("delete_event_"))
-async def delete_event(callback: CallbackQuery, state: FSMContext):
-    event_id = int(callback.data.split("_")[2])
+@dispatcher.callback_query(lambda c: c.data.startswith("delete_selected_event_"))
+async def delete_selected_event(callback: CallbackQuery, state: FSMContext):
+    event_id = int(callback.data.split("_")[3])  # Извлекаем event_id
     await state.update_data(event_id=event_id)
 
+    # Подтверждение удаления
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text="Да", callback_data="confirm_delete_event")],
         [InlineKeyboardButton(text="Нет", callback_data="cancel_delete_event")]
     ])
-    await callback.message.answer("Удалить это событие?", reply_markup=keyboard)
+    await callback.message.answer("Вы уверены, что хотите удалить это событие?", reply_markup=keyboard)
+
+# Шаг 4: Подтверждение удаления события
 
 
 @dispatcher.callback_query(lambda c: c.data == "confirm_delete_event")
 async def confirm_delete_event(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     event_id = data['event_id']
+
     db: Session = next(get_db())
     event = db.query(Event).filter(Event.id == event_id).first()
 
     if event:
         db.delete(event)
         db.commit()
-        await callback.message.answer(f"Событие '{event.event}' удалено.")
+        await callback.message.answer(f"Событие '{event.event}' успешно удалено.")
     else:
         await callback.message.answer("Событие не найдено.")
     await state.clear()
+
+# Шаг 5: Отмена удаления события
 
 
 @dispatcher.callback_query(lambda c: c.data == "cancel_delete_event")
@@ -363,10 +396,9 @@ async def cancel_delete_event(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Удаление события отменено.")
     await state.clear()
 
+
 if __name__ == "__main__":
     init_db()
-
     async def main():
         await dispatcher.start_polling(bot)
-
     asyncio.run(main())
