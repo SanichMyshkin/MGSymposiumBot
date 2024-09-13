@@ -1,16 +1,20 @@
 import asyncio
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.fsm.storage.memory import MemoryStorage
 import logging
 import os
+from datetime import datetime
+
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
-from database import Event, EventSeries, init_db, get_db
-from datetime import datetime
+
+from database import Event, EventSeries, get_db, init_db
+from utils import is_url_valid, admin_only
 
 load_dotenv()
 
@@ -40,6 +44,36 @@ class CreateEvent(StatesGroup):
     waiting_for_image_url = State()
 
 
+@dispatcher.message(Command(commands=["help"]))
+async def cmd_help(message: types.Message):
+    if os.getenv("OWNER_ID") == str(message.from_user.id):
+        help_text = (
+            "Доступные команды:\n"
+            "/help - Показать это сообщение\n"
+            "/start - Показать список мероприятий\n"
+            "/create - Создать новое мероприятие\n"
+            "/create_event - Создать событие внутри мероприятия\n"
+            "/delete - Удалить мероприятие и все связанные с ним события \n"
+            "/delete_event - Удалить событие\n"
+            "/update - Редактировать существующиее мероприятие\n"
+            "/update_event - Редактировать существующиее событие\n"
+            "/id - Показать твое id (Нужно для администрирования бота)"
+        )
+    else:
+        help_text = (
+            "Доступные команды:\n"
+            "/start - Показать список мероприятий\n"
+            "/help - Показать это сообщение\n"
+        )
+    await message.answer(help_text)
+
+
+@dispatcher.message(Command(commands=["id"]))
+async def cmd_id(message: types.Message):
+    user_id = message.from_user.id
+    await message.answer(f"Ваш ID пользователя: {user_id}")
+
+
 @dispatcher.message(Command(commands=["start"]))
 async def cmd_start(message: types.Message):
     db: Session = next(get_db())
@@ -62,6 +96,8 @@ async def show_events(callback: CallbackQuery):
     series_id = int(callback.data.split("_")[1])
     db: Session = next(get_db())
     events = db.query(Event).filter(Event.series_id == series_id).all()
+    events_series = db.query(EventSeries).filter(
+        EventSeries.id == series_id).first()
 
     if events:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -70,7 +106,12 @@ async def show_events(callback: CallbackQuery):
                 callback_data=f"event_{event.id}")]
             for event in events
         ])
-        await callback.message.answer(f"Список событий:{events}", reply_markup=keyboard)
+        if events_series.image_url and await is_url_valid(events_series.image_url):
+            await callback.message.answer_photo(photo=events_series.image_url,
+                                                caption=events_series.description,
+                                                reply_markup=keyboard)
+        else:
+            await callback.message.answer(events_series.description, reply_markup=keyboard)
     else:
         await callback.message.answer("Нет событий в этом мероприятии.")
 
@@ -90,14 +131,17 @@ async def show_event_details(callback: CallbackQuery):
             f"Спикеры: {event.speakers or 'Не указаны'}\n"
             f"Описание: {event.description or 'Нет описания'}"
         )
-        await callback.message.answer(details)
-        if event.image_url:
-            await callback.message.answer_photo(photo=event.image_url)
+
+        if event.image_url and await is_url_valid(event.image_url):
+            await callback.message.answer_photo(photo=event.image_url, caption=details)
+        else:
+            await callback.message.answer(details)
     else:
         await callback.message.answer("Событие не найдено.")
 
 
 @dispatcher.message(Command(commands=["create"]))
+@admin_only
 async def cmd_create(message: types.Message, state: FSMContext):
     await message.answer("Введите название мероприятия:")
     await state.set_state(CreateEventSeries.waiting_for_name)
@@ -162,6 +206,7 @@ async def event_series_image_url(message: types.Message, state: FSMContext):
 
 
 @dispatcher.message(Command(commands=["create_event"]))
+@admin_only
 async def cmd_create_event(message: types.Message, state: FSMContext):
     db: Session = next(get_db())
     event_series = db.query(EventSeries).all()
@@ -260,6 +305,7 @@ async def event_image_url(message: types.Message, state: FSMContext):
 
 
 @dispatcher.message(Command(commands=["delete"]))
+@admin_only
 async def cmd_delete_event_series(message: types.Message, state: FSMContext):
     db: Session = next(get_db())
     event_series = db.query(EventSeries).all()
@@ -313,6 +359,7 @@ async def cancel_delete(callback: CallbackQuery, state: FSMContext):
 
 
 @dispatcher.message(Command(commands=["delete_event"]))
+@admin_only
 async def cmd_delete_event(message: types.Message, state: FSMContext):
     db: Session = next(get_db())
     event_series = db.query(EventSeries).all()
@@ -423,6 +470,7 @@ class UpdateEvent(StatesGroup):
 
 
 @dispatcher.message(Command(commands=["update"]))
+@admin_only
 async def cmd_update_event_series(message: types.Message, state: FSMContext):
     db: Session = next(get_db())
     event_series = db.query(EventSeries).all()
@@ -538,6 +586,7 @@ async def update_event_series_photo_url(message: types.Message, state: FSMContex
 
 
 @dispatcher.message(Command(commands=["update_event"]))
+@admin_only
 async def cmd_update_event(message: types.Message, state: FSMContext):
     db: Session = next(get_db())
     event_series = db.query(EventSeries).all()

@@ -163,3 +163,4 @@ cython_debug/
 
 fill_db.py
 shit.py
+alembic.ini
