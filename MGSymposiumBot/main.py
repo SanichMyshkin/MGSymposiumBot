@@ -12,15 +12,9 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 
-from MGSymposiumBot.models import Event, EventSeries, get_db, init_db
+from models import Event, EventSeries, get_db, init_db
 from utils import is_url_valid, admin_only, format_date, check_optional_field
-
-
-from states import (
-    CreateEvent,
-    CreateEventSeries,
-    UpdateEvent,
-    UpdateEventSeries)
+from states import CreateEvent, CreateEventSeries, UpdateEvent, UpdateEventSeries
 
 load_dotenv()
 
@@ -362,6 +356,8 @@ async def event_speakers(message: types.Message, state: FSMContext):
         await state.clear()
         await message.answer("Создание мероприятия прервано.")
         return
+
+    # Если пользователь написал "-", то оставляем поле пустым
     speakers = message.text if message.text != "-" else "-"
     await state.update_data(speakers=speakers)
     await message.answer("Введите описание события или '-' для пропуска:")
@@ -387,12 +383,15 @@ async def event_image_url(message: types.Message, state: FSMContext):
     image_url = message.text if message.text else None
     data = await state.get_data()
     db: Session = next(get_db())
+
+    # Создаем новое событие с учётом того, что поля могут быть пустыми
     new_event = Event(
         event=data['event_name'],
         date=data['date'],
         time=data['time'],
         room=data['room'],
-        speakers=data.get('speakers'),
+        speakers=data.get('speakers'),  # None, если пользователь пропустил
+        # None, если пользователь пропустил
         description=data.get('description'),
         image_url=image_url,
         series_id=data['series_id']
@@ -402,6 +401,10 @@ async def event_image_url(message: types.Message, state: FSMContext):
 
     await message.answer(f"Событие '{data['event_name']}' создано.")
     await state.clear()
+
+# ================================================================================================================
+# АПДЕЙТЫ
+# ========================================================================================
 
 
 @dispatcher.message(Command(commands=["update"]))

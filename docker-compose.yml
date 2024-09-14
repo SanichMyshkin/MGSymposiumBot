@@ -11,6 +11,20 @@ services:
     ports:
       - "5432:5432"
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mg_symposium_bot
+    depends_on:
+      - postgres
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    command: make start
+    env_file:
+      - '.env.docker'
+
 volumes:
   postgres_data:
-    driver: local

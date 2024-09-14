@@ -20,7 +20,8 @@ class EventSeries(Base):
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     description = Column(String)  # Описание серии мероприятий
-    image_url = Column(String, nullable=True)  # Ссылка на фотографию серии мероприятий
+    # Ссылка на фотографию серии мероприятий
+    image_url = Column(String, nullable=True)
     events = relationship("Event", back_populates="series")
 
 
@@ -34,12 +35,11 @@ class Event(Base):
     event = Column(String, nullable=False)
     room = Column(String, nullable=False)
     speakers = Column(String)
-    description = Column(String)  # Описание события
-    image_url = Column(String, nullable=True)  # Ссылка на фотографию события
+    description = Column(String)
+    image_url = Column(String, nullable=True)
     series = relationship("EventSeries", back_populates="events")
 
 
-# Создание движка базы данных
 engine = create_engine(DATABASE_URL)
 
 # Создание сессии
