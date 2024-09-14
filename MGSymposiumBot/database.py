@@ -30,7 +30,7 @@ class Event(Base):
     id = Column(Integer, primary_key=True, index=True)
     series_id = Column(Integer, ForeignKey('event_series.id'), nullable=False)
     date = Column(Date, nullable=False)
-    time = Column(Time, nullable=False)
+    time = Column(String, nullable=False)
     event = Column(String, nullable=False)
     room = Column(String, nullable=False)
     speakers = Column(String)

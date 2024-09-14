@@ -45,6 +45,24 @@ class CreateEvent(StatesGroup):
     waiting_for_image_url = State()
 
 
+class UpdateEventSeries(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_start_date = State()
+    waiting_for_end_date = State()
+    waiting_for_description = State()
+    waiting_for_photo_url = State()
+
+
+class UpdateEvent(StatesGroup):
+    waiting_for_event_name = State()
+    waiting_for_event_date = State()
+    waiting_for_event_time = State()
+    waiting_for_location = State()
+    waiting_for_speakers = State()
+    waiting_for_description = State()
+    waiting_for_photo_url = State()
+
+
 @dispatcher.message(Command(commands=["help"]))
 async def cmd_help(message: types.Message):
     if os.getenv("OWNER_ID") == str(message.from_user.id):
@@ -210,7 +228,7 @@ async def event_series_description(message: types.Message, state: FSMContext):
         return
 
     await state.update_data(description=message.text)
-    await message.answer("Введите ссылку на фотографию мероприятия (или пропустите шаг):")
+    await message.answer("Введите ссылку на фотографию мероприятия:")
     await state.set_state(CreateEventSeries.waiting_for_image_url)
 
 
@@ -288,7 +306,7 @@ async def event_date(message: types.Message, state: FSMContext):
     try:
         date = datetime.strptime(message.text, "%Y-%m-%d").date()
         await state.update_data(date=date)
-        await message.answer("Введите время события (в формате ЧЧ:ММ):")
+        await message.answer("Введите время события (в формате ЧЧ:ММ - ЧЧ:ММ):")
         await state.set_state(CreateEvent.waiting_for_time)
     except ValueError:
         await message.answer("Неправильный формат даты. Попробуйте еще раз (ГГГГ-ММ-ДД).")
@@ -298,15 +316,41 @@ async def event_date(message: types.Message, state: FSMContext):
 async def event_time(message: types.Message, state: FSMContext):
     if message.text.lower() == "stop":
         await state.clear()
-        await message.answer("Создание мероприятия прервано.")
+        await message.answer("Создание события прервано.")
         return
+
+    time_input = message.text.strip()
+
     try:
-        time = datetime.strptime(message.text, "%H:%M").time()
-        await state.update_data(time=time)
+        # Разбиваем строку на начало и конец времени
+        start_time, end_time = time_input.split('-')
+        start_time = start_time.strip()
+        end_time = end_time.strip()
+
+        # Проверяем, что оба времени содержат часы и минуты, разделенные двоеточием
+        start_hour, start_minute = map(int, start_time.split(':'))
+        end_hour, end_minute = map(int, end_time.split(':'))
+
+        # Проверяем корректность значений для часов и минут
+        if not (0 <= start_hour <= 23 and 0 <= start_minute <= 59):
+            raise ValueError("Неправильный формат времени начала.")
+        if not (0 <= end_hour <= 23 and 0 <= end_minute <= 59):
+            raise ValueError("Неправильный формат времени окончания.")
+
+        # Проверяем, что время начала меньше времени окончания
+        if (start_hour, start_minute) >= (end_hour, end_minute):
+            await message.answer("Время начала не может быть позже или равно времени окончания. Попробуйте снова.")
+            return
+
+        # Сохраняем время как строку
+        await state.update_data(time=f"{start_hour:02}:{start_minute:02} - {end_hour:02}:{end_minute:02}")
+        
+        # Переход на следующий этап
         await message.answer("Введите место проведения события:")
         await state.set_state(CreateEvent.waiting_for_room)
+
     except ValueError:
-        await message.answer("Неправильный формат времени. Попробуйте еще раз (ЧЧ:ММ).")
+        await message.answer("Неправильный формат времени. Попробуйте еще раз (ЧЧ:ММ - ЧЧ:ММ).")
 
 
 @dispatcher.message(CreateEvent.waiting_for_room)
@@ -489,24 +533,6 @@ async def confirm_delete_event(callback: CallbackQuery, state: FSMContext):
 async def cancel_delete_event(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Удаление события отменено.")
     await state.clear()
-
-
-class UpdateEventSeries(StatesGroup):
-    waiting_for_name = State()
-    waiting_for_start_date = State()
-    waiting_for_end_date = State()
-    waiting_for_description = State()
-    waiting_for_photo_url = State()
-
-
-class UpdateEvent(StatesGroup):
-    waiting_for_event_name = State()
-    waiting_for_event_date = State()
-    waiting_for_event_time = State()
-    waiting_for_location = State()
-    waiting_for_speakers = State()
-    waiting_for_description = State()
-    waiting_for_photo_url = State()
 
 
 @dispatcher.message(Command(commands=["update"]))
