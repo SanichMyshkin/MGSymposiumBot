@@ -6,16 +6,21 @@ from datetime import datetime, time
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import CallbackQuery, \
-    InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 
-from database import Event, EventSeries, get_db, init_db
-from utils import is_url_valid, admin_only, format_date
+from MGSymposiumBot.models import Event, EventSeries, get_db, init_db
+from utils import is_url_valid, admin_only, format_date, check_optional_field
+
+
+from states import (
+    CreateEvent,
+    CreateEventSeries,
+    UpdateEvent,
+    UpdateEventSeries)
 
 load_dotenv()
 
@@ -25,43 +30,6 @@ storage = MemoryStorage()
 dispatcher = Dispatcher(storage=storage)
 
 logging.basicConfig(level=logging.INFO)
-
-
-class CreateEventSeries(StatesGroup):
-    waiting_for_name = State()
-    waiting_for_start_date = State()
-    waiting_for_end_date = State()
-    waiting_for_description = State()
-    waiting_for_image_url = State()
-
-
-class CreateEvent(StatesGroup):
-    waiting_for_series = State()
-    waiting_for_event_name = State()
-    waiting_for_date = State()
-    waiting_for_time = State()
-    waiting_for_room = State()
-    waiting_for_speakers = State()
-    waiting_for_description = State()
-    waiting_for_image_url = State()
-
-
-class UpdateEventSeries(StatesGroup):
-    waiting_for_name = State()
-    waiting_for_start_date = State()
-    waiting_for_end_date = State()
-    waiting_for_description = State()
-    waiting_for_photo_url = State()
-
-
-class UpdateEvent(StatesGroup):
-    waiting_for_event_name = State()
-    waiting_for_event_date = State()
-    waiting_for_event_time = State()
-    waiting_for_location = State()
-    waiting_for_speakers = State()
-    waiting_for_description = State()
-    waiting_for_photo_url = State()
 
 
 @dispatcher.message(Command(commands=["help"]))
@@ -75,10 +43,10 @@ async def cmd_help(message: types.Message):
             "/create_event - Создать событие внутри мероприятия\n"
             "/delete - Удалить мероприятие и все связанные с ним события \n"
             "/delete_event - Удалить событие\n"
-            "/update - Редактировать существующиее мероприятие\n"
-            "/update_event - Редактировать существующиее событие\n"
-            "/id - Показать твое id (Нужно для администрирования бота)\n\n"
-            "Что бы прервать создание или редактирование мероприятия/события - введите слово stop"
+            "/update - Редактировать существующее мероприятие\n"
+            "/update_event - Редактировать существующее событие\n"
+            "/id - Показать твой ID (Нужно для администрирования бота)\n\n"
+            "Чтобы прервать создание или редактирование мероприятия/события - введите слово stop"
         )
     else:
         help_text = (
@@ -105,7 +73,8 @@ async def cmd_start(message: types.Message):
             [InlineKeyboardButton(
                 text=f"{series.name}: {format_date(series.start_date, series.end_date)}",
                 callback_data=f"series_{series.id}")]
-            for series in event_series
+            # Сортировка мероприятий по дате начала
+            for series in sorted(event_series, key=lambda s: s.start_date)
         ])
         await message.answer_photo(photo=logo, caption="Список мероприятий:", reply_markup=keyboard)
     else:
@@ -116,23 +85,38 @@ async def cmd_start(message: types.Message):
 async def show_events(callback: CallbackQuery):
     series_id = int(callback.data.split("_")[1])
     db: Session = next(get_db())
-    events = db.query(Event).filter(Event.series_id == series_id).all()
+    events = db.query(Event).filter(Event.series_id == series_id).order_by(
+        Event.date).all()  # Сортировка событий по дате
     events_series = db.query(EventSeries).filter(
         EventSeries.id == series_id).first()
 
     if events:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
-                text=f"{event.event} ({event.date} {event.time})",
+                text=f"{event.event}: {format_date(event.date, event.date)}, {event.time}",
                 callback_data=f"event_{event.id}")]
             for event in events
         ])
+        series_details = (
+            f"<b>{events_series.name}</b>\n"
+            f"Дата начала: {events_series.start_date.strftime('%d.%m.%Y')}\n"
+            f"Дата окончания: {events_series.end_date.strftime('%d.%m.%Y')}\n"
+        )
+        if events_series.description and events_series.description != "-":
+            series_details += f"\nОписание: {events_series.description}\n"
         if events_series.image_url and await is_url_valid(events_series.image_url):
-            await callback.message.answer_photo(photo=events_series.image_url,
-                                                caption=events_series.description,
-                                                reply_markup=keyboard)
+            await callback.message.answer_photo(
+                photo=events_series.image_url,
+                caption=series_details,
+                reply_markup=keyboard,
+                parse_mode='HTML'
+            )
         else:
-            await callback.message.answer(events_series.description, reply_markup=keyboard)
+            await callback.message.answer(
+                text=series_details,
+                reply_markup=keyboard,
+                parse_mode='HTML'
+            )
     else:
         await callback.message.answer("Нет событий в этом мероприятии.")
 
@@ -145,18 +129,24 @@ async def show_event_details(callback: CallbackQuery):
 
     if event:
         details = (
-            f"Мероприятие: {event.event}\n"
-            f"Дата: {event.date}\n"
-            f"Время: {event.time}\n"
-            f"Место: {event.room}\n"
-            f"Спикеры: {event.speakers or 'Не указаны'}\n"
-            f"Описание: {event.description or 'Нет описания'}"
+            f"<b>Мероприятие:</b> {event.event}\n"
+            f"<b>Дата:</b> {event.date.strftime('%d.%м.%Y')}\n"
+            f"<b>Время:</b> {event.time}\n"
+            f"<b>Место:</b> {event.room}\n"
         )
+        if event.speakers and event.speakers != "-":
+            details += f"<b>Спикеры:</b> {event.speakers}\n"
+        if event.description and event.description != "-":
+            details += f"<b>Описание:</b> {event.description}\n"
 
         if event.image_url and await is_url_valid(event.image_url):
-            await callback.message.answer_photo(photo=event.image_url, caption=details)
+            await callback.message.answer_photo(
+                photo=event.image_url,
+                caption=details,
+                parse_mode='HTML'
+            )
         else:
-            await callback.message.answer(details)
+            await callback.message.answer(details, parse_mode='HTML')
     else:
         await callback.message.answer("Событие не найдено.")
 
@@ -193,13 +183,10 @@ async def event_series_start_date(message: types.Message, state: FSMContext):
         return
 
     try:
-        # Преобразуем введённую строку в объект даты
         start_date = datetime.strptime(message.text, "%d.%m.%Y").date()
-        # Сохраняем дату как объект
         await state.update_data(start_date=start_date)
         await message.answer("Введите дату окончания мероприятия (в формате ДД.ММ.ГГГГ):")
         await state.set_state(CreateEventSeries.waiting_for_end_date)
-
     except ValueError:
         await message.answer("Неправильный формат даты. Попробуйте еще раз. Формат должен быть: ДД.ММ.ГГГГ.")
 
@@ -221,10 +208,9 @@ async def event_series_end_date(message: types.Message, state: FSMContext):
             await message.answer("Дата окончания не может быть раньше даты начала.")
             return
 
-        await state.update_data(end_date=end_date)  # Сохраняем дату как объект
-        await message.answer("Введите описание мероприятия:")
+        await state.update_data(end_date=end_date)
+        await message.answer("Введите описание мероприятия (или '-' для пропуска):")
         await state.set_state(CreateEventSeries.waiting_for_description)
-
     except ValueError:
         await message.answer("Неправильный формат даты. Попробуйте еще раз. Формат должен быть: ДД.ММ.ГГГГ.")
 
@@ -236,8 +222,9 @@ async def event_series_description(message: types.Message, state: FSMContext):
         await message.answer("Создание мероприятия прервано.")
         return
 
-    await state.update_data(description=message.text)
-    await message.answer("Введите ссылку на фотографию мероприятия:")
+    description = check_optional_field(message.text)
+    await state.update_data(description=description)
+    await message.answer("Введите ссылку на фотографию мероприятия (или '-' для пропуска):")
     await state.set_state(CreateEventSeries.waiting_for_image_url)
 
 
@@ -248,7 +235,7 @@ async def event_series_image_url(message: types.Message, state: FSMContext):
         await message.answer("Создание мероприятия прервано.")
         return
 
-    image_url = message.text if message.text else None
+    image_url = check_optional_field(message.text)
     data = await state.get_data()
 
     db: Session = next(get_db())
@@ -365,7 +352,7 @@ async def event_room(message: types.Message, state: FSMContext):
         await message.answer("Создание мероприятия прервано.")
         return
     await state.update_data(room=message.text)
-    await message.answer("Введите имена спикеров:")
+    await message.answer("Введите имена спикеров или '-' для пропуска:")
     await state.set_state(CreateEvent.waiting_for_speakers)
 
 
@@ -375,9 +362,9 @@ async def event_speakers(message: types.Message, state: FSMContext):
         await state.clear()
         await message.answer("Создание мероприятия прервано.")
         return
-    speakers = message.text if message.text else None
+    speakers = message.text if message.text != "-" else "-"
     await state.update_data(speakers=speakers)
-    await message.answer("Введите описание события:")
+    await message.answer("Введите описание события или '-' для пропуска:")
     await state.set_state(CreateEvent.waiting_for_description)
 
 
@@ -387,7 +374,9 @@ async def event_description(message: types.Message, state: FSMContext):
         await state.clear()
         await message.answer("Создание мероприятия прервано.")
         return
-    description = message.text if message.text else None
+
+    # Если пользователь написал "-", то оставляем поле пустым
+    description = message.text if message.text != "-" else "-"
     await state.update_data(description=description)
     await message.answer("Введите ссылку на фотографию события:")
     await state.set_state(CreateEvent.waiting_for_image_url)
@@ -398,7 +387,6 @@ async def event_image_url(message: types.Message, state: FSMContext):
     image_url = message.text if message.text else None
     data = await state.get_data()
     db: Session = next(get_db())
-
     new_event = Event(
         event=data['event_name'],
         date=data['date'],
@@ -492,7 +480,7 @@ async def update_event_series_end_date(message: types.Message, state: FSMContext
             return
 
         await state.update_data(new_end_date=new_end_date)
-        await message.answer("Введите новое описание мероприятия:")
+        await message.answer("Введите новое описание мероприятия (или '-' для пропуска):")
         await state.set_state(UpdateEventSeries.waiting_for_description)
     except ValueError:
         await message.answer("Неправильный формат даты. Попробуйте снова (ДД.ММ.ГГГГ).")
@@ -505,7 +493,7 @@ async def update_event_series_description(message: types.Message, state: FSMCont
         await message.answer("Создание мероприятия прервано.")
         return
 
-    new_description = message.text
+    new_description = message.text if message.text != "-" else '-'
     await state.update_data(new_description=new_description)
     await message.answer("Введите новый URL фото мероприятия:")
     await state.set_state(UpdateEventSeries.waiting_for_photo_url)
@@ -524,7 +512,7 @@ async def update_event_series_photo_url(message: types.Message, state: FSMContex
     new_name = data['new_name']
     new_start_date = data['new_start_date']
     new_end_date = data['new_end_date']
-    new_description = data['new_description']
+    new_description = data.get('new_description')
 
     db: Session = next(get_db())
     event_series = db.query(EventSeries).filter(
@@ -534,7 +522,8 @@ async def update_event_series_photo_url(message: types.Message, state: FSMContex
         event_series.name = new_name
         event_series.start_date = new_start_date
         event_series.end_date = new_end_date
-        event_series.description = new_description
+        if new_description:
+            event_series.description = new_description
         event_series.image_url = new_image_url
         db.commit()
 
@@ -639,7 +628,7 @@ async def update_event_time(message: types.Message, state: FSMContext):
             return
 
         await state.update_data(new_event_time=f"{start_time.strftime('%H:%M')} - {end_time.strftime('%H:%M')}")
-        await message.answer("Введите новое место проведения события:")
+        await message.answer("Введите новое место проведения события (или '-' для пропуска):")
         await state.set_state(UpdateEvent.waiting_for_location)
 
     except ValueError:
@@ -653,7 +642,7 @@ async def update_event_location(message: types.Message, state: FSMContext):
         await message.answer("Создание мероприятия прервано.")
         return
 
-    new_location = message.text
+    new_location = message.text if message.text != "-" else '-'
     await state.update_data(new_location=new_location)
     await message.answer("Введите новый URL фото события:")
     await state.set_state(UpdateEvent.waiting_for_photo_url)
@@ -672,7 +661,7 @@ async def update_event_photo_url(message: types.Message, state: FSMContext):
     new_event_name = data['new_event_name']
     new_event_date = data['new_event_date']
     new_event_time = data['new_event_time']
-    new_location = data['new_location']
+    new_location = data.get('new_location')
 
     db: Session = next(get_db())
     event = db.query(Event).filter(Event.id == event_id).first()
@@ -681,7 +670,8 @@ async def update_event_photo_url(message: types.Message, state: FSMContext):
         event.event = new_event_name
         event.date = new_event_date
         event.time = new_event_time
-        event.room = new_location
+        if new_location:
+            event.room = new_location
         event.image_url = new_photo_url
         db.commit()
 

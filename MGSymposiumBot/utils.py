@@ -54,3 +54,7 @@ def format_date(start_date: datetime, end_date: datetime):
         return (f"{start_date.day} {months_genitive[start_date.month]}"
                 f" {start_date.year} года - {end_date.day}"
                 f" {months_genitive[end_date.month]} {end_date.year} года")
+
+
+def check_optional_field(field: str) -> str:
+    return None if field.strip() == "-" else field
