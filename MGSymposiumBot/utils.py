@@ -4,7 +4,7 @@ import os
 from functools import wraps
 from aiogram.types import Message
 from dotenv import load_dotenv
-
+from datetime import datetime
 
 load_dotenv()
 
@@ -31,3 +31,26 @@ def admin_only(func):
         else:
             await message.answer("Извините, у вас нет доступа к этой команде.")
     return wrapper
+
+
+months_genitive = {
+    1: "января", 2: "февраля", 3: "марта", 4: "апреля", 5: "мая", 6: "июня",
+    7: "июля", 8: "августа", 9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
+}
+
+
+def format_date(start_date: datetime, end_date: datetime):
+    if start_date == end_date:
+        return f"{start_date.day} {months_genitive[start_date.month]}"
+    if start_date.year == end_date.year:
+        if start_date.month == end_date.month:
+            return (f"{start_date.day} - {end_date.day}"
+                    f" {months_genitive[start_date.month]}")
+        else:
+            return (f"{start_date.day}"
+                    f" {months_genitive[start_date.month]} - "
+                    f"{end_date.day} {months_genitive[end_date.month]}")
+    else:
+        return (f"{start_date.day} {months_genitive[start_date.month]}"
+                f" {start_date.year} года - {end_date.day}"
+                f" {months_genitive[end_date.month]} {end_date.year} года")

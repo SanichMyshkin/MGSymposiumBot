@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, time
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -15,11 +15,12 @@ from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 
 from database import Event, EventSeries, get_db, init_db
-from utils import is_url_valid, admin_only
+from utils import is_url_valid, admin_only, format_date
 
 load_dotenv()
 
 bot = Bot(token=os.getenv("BOT_TOKEN"))
+logo = os.getenv('MGSU_DEFAULT_LOGO')
 storage = MemoryStorage()
 dispatcher = Dispatcher(storage=storage)
 
@@ -102,11 +103,11 @@ async def cmd_start(message: types.Message):
     if event_series:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
-                text=f"Мероприятие: {series.name} ({series.start_date} - {series.end_date})",
+                text=f"{series.name}: {format_date(series.start_date, series.end_date)}",
                 callback_data=f"series_{series.id}")]
             for series in event_series
         ])
-        await message.answer("Список мероприятий:", reply_markup=keyboard)
+        await message.answer_photo(photo=logo, caption="Список мероприятий:", reply_markup=keyboard)
     else:
         await message.answer("Нет запланированных мероприятий.")
 
@@ -180,7 +181,7 @@ async def event_series_name(message: types.Message, state: FSMContext):
         return
 
     await state.update_data(name=message.text)
-    await message.answer("Введите дату начала мероприятия (в формате ГГГГ-ММ-ДД):")
+    await message.answer("Введите дату начала мероприятия (в формате ДД.ММ.ГГГГ):")
     await state.set_state(CreateEventSeries.waiting_for_start_date)
 
 
@@ -192,12 +193,15 @@ async def event_series_start_date(message: types.Message, state: FSMContext):
         return
 
     try:
-        start_date = datetime.strptime(message.text, "%Y-%m-%d").date()
+        # Преобразуем введённую строку в объект даты
+        start_date = datetime.strptime(message.text, "%d.%m.%Y").date()
+        # Сохраняем дату как объект
         await state.update_data(start_date=start_date)
-        await message.answer("Введите дату окончания мероприятия (в формате ГГГГ-ММ-ДД):")
+        await message.answer("Введите дату окончания мероприятия (в формате ДД.ММ.ГГГГ):")
         await state.set_state(CreateEventSeries.waiting_for_end_date)
+
     except ValueError:
-        await message.answer("Неправильный формат даты. Попробуйте еще раз.")
+        await message.answer("Неправильный формат даты. Попробуйте еще раз. Формат должен быть: ДД.ММ.ГГГГ.")
 
 
 @dispatcher.message(CreateEventSeries.waiting_for_end_date)
@@ -208,16 +212,21 @@ async def event_series_end_date(message: types.Message, state: FSMContext):
         return
 
     try:
-        end_date = datetime.strptime(message.text, "%Y-%m-%d").date()
         data = await state.get_data()
-        if end_date < data['start_date']:
+        start_date = data['start_date']
+
+        end_date = datetime.strptime(message.text, "%d.%m.%Y").date()
+
+        if end_date < start_date:
             await message.answer("Дата окончания не может быть раньше даты начала.")
             return
-        await state.update_data(end_date=end_date)
+
+        await state.update_data(end_date=end_date)  # Сохраняем дату как объект
         await message.answer("Введите описание мероприятия:")
         await state.set_state(CreateEventSeries.waiting_for_description)
+
     except ValueError:
-        await message.answer("Неправильный формат даты. Попробуйте еще раз.")
+        await message.answer("Неправильный формат даты. Попробуйте еще раз. Формат должен быть: ДД.ММ.ГГГГ.")
 
 
 @dispatcher.message(CreateEventSeries.waiting_for_description)
@@ -241,7 +250,9 @@ async def event_series_image_url(message: types.Message, state: FSMContext):
 
     image_url = message.text if message.text else None
     data = await state.get_data()
+
     db: Session = next(get_db())
+
     new_series = EventSeries(
         name=data['name'],
         start_date=data['start_date'],
@@ -249,8 +260,10 @@ async def event_series_image_url(message: types.Message, state: FSMContext):
         description=data['description'],
         image_url=image_url
     )
+
     db.add(new_series)
     db.commit()
+
     await message.answer(f"Мероприятие '{data['name']}' создано.")
     await state.clear()
 
@@ -268,7 +281,7 @@ async def cmd_create_event(message: types.Message, state: FSMContext):
     if event_series:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
-                text=f"{series.name} ({series.start_date} - {series.end_date})",
+                text=f"{series.name}: {format_date(series.start_date, series.end_date)}",
                 callback_data=f"select_series_{series.id}")]
             for series in event_series
         ])
@@ -293,7 +306,7 @@ async def event_name(message: types.Message, state: FSMContext):
         await message.answer("Создание мероприятия прервано.")
         return
     await state.update_data(event_name=message.text)
-    await message.answer("Введите дату события (в формате ГГГГ-ММ-ДД):")
+    await message.answer("Введите дату события (в формате ДД.ММ.ГГГГ):")
     await state.set_state(CreateEvent.waiting_for_date)
 
 
@@ -304,12 +317,12 @@ async def event_date(message: types.Message, state: FSMContext):
         await message.answer("Создание мероприятия прервано.")
         return
     try:
-        date = datetime.strptime(message.text, "%Y-%m-%d").date()
+        date = datetime.strptime(message.text, "%d.%m.%Y").date()
         await state.update_data(date=date)
         await message.answer("Введите время события (в формате ЧЧ:ММ - ЧЧ:ММ):")
         await state.set_state(CreateEvent.waiting_for_time)
     except ValueError:
-        await message.answer("Неправильный формат даты. Попробуйте еще раз (ГГГГ-ММ-ДД).")
+        await message.answer("Неправильный формат даты. Попробуйте еще раз (ДД.ММ.ГГГГ).")
 
 
 @dispatcher.message(CreateEvent.waiting_for_time)
@@ -322,30 +335,22 @@ async def event_time(message: types.Message, state: FSMContext):
     time_input = message.text.strip()
 
     try:
-        # Разбиваем строку на начало и конец времени
         start_time, end_time = time_input.split('-')
         start_time = start_time.strip()
         end_time = end_time.strip()
 
-        # Проверяем, что оба времени содержат часы и минуты, разделенные двоеточием
         start_hour, start_minute = map(int, start_time.split(':'))
         end_hour, end_minute = map(int, end_time.split(':'))
 
-        # Проверяем корректность значений для часов и минут
-        if not (0 <= start_hour <= 23 and 0 <= start_minute <= 59):
-            raise ValueError("Неправильный формат времени начала.")
-        if not (0 <= end_hour <= 23 and 0 <= end_minute <= 59):
-            raise ValueError("Неправильный формат времени окончания.")
+        start_time_obj = time(start_hour, start_minute)
+        end_time_obj = time(end_hour, end_minute)
 
-        # Проверяем, что время начала меньше времени окончания
-        if (start_hour, start_minute) >= (end_hour, end_minute):
+        if start_time_obj >= end_time_obj:
             await message.answer("Время начала не может быть позже или равно времени окончания. Попробуйте снова.")
             return
 
-        # Сохраняем время как строку
-        await state.update_data(time=f"{start_hour:02}:{start_minute:02} - {end_hour:02}:{end_minute:02}")
-        
-        # Переход на следующий этап
+        await state.update_data(time=f"{start_time_obj.strftime('%H:%M')} - {end_time_obj.strftime('%H:%M')}")
+
         await message.answer("Введите место проведения события:")
         await state.set_state(CreateEvent.waiting_for_room)
 
@@ -393,6 +398,7 @@ async def event_image_url(message: types.Message, state: FSMContext):
     image_url = message.text if message.text else None
     data = await state.get_data()
     db: Session = next(get_db())
+
     new_event = Event(
         event=data['event_name'],
         date=data['date'],
@@ -405,7 +411,283 @@ async def event_image_url(message: types.Message, state: FSMContext):
     )
     db.add(new_event)
     db.commit()
+
     await message.answer(f"Событие '{data['event_name']}' создано.")
+    await state.clear()
+
+
+@dispatcher.message(Command(commands=["update"]))
+@admin_only
+async def cmd_update_event_series(message: types.Message, state: FSMContext):
+    if message.text.lower() == "stop":
+        await state.clear()
+        await message.answer("Создание мероприятия прервано.")
+        return
+
+    db: Session = next(get_db())
+    event_series = db.query(EventSeries).all()
+
+    if event_series:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"{series.name}: {format_date(series.start_date, series.end_date)}",
+                callback_data=f"update_event_series_{series.id}")]
+            for series in event_series
+        ])
+        await message.answer("Выберите мероприятие для редактирования:", reply_markup=keyboard)
+    else:
+        await message.answer("Нет мероприятий для редактирования.")
+
+
+@dispatcher.callback_query(lambda c: c.data.startswith("update_event_series_"))
+async def select_event_series_to_update(callback: CallbackQuery, state: FSMContext):
+    series_id = int(callback.data.split("_")[3])
+    await state.update_data(series_id=series_id)
+    await callback.message.answer("Введите новое название мероприятия:")
+    await state.set_state(UpdateEventSeries.waiting_for_name)
+
+
+@dispatcher.message(UpdateEventSeries.waiting_for_name)
+async def update_event_series_name(message: types.Message, state: FSMContext):
+    if message.text.lower() == "stop":
+        await state.clear()
+        await message.answer("Создание мероприятия прервано.")
+        return
+
+    new_name = message.text
+    await state.update_data(new_name=new_name)
+    await message.answer("Введите новую дату начала мероприятия (в формате ДД.ММ.ГГГГ):")
+    await state.set_state(UpdateEventSeries.waiting_for_start_date)
+
+
+@dispatcher.message(UpdateEventSeries.waiting_for_start_date)
+async def update_event_series_start_date(message: types.Message, state: FSMContext):
+    if message.text.lower() == "stop":
+        await state.clear()
+        await message.answer("Создание мероприятия прервано.")
+        return
+    try:
+        new_start_date = datetime.strptime(message.text, "%d.%m.%Y").date()
+        await state.update_data(new_start_date=new_start_date)
+        await message.answer("Введите новую дату окончания мероприятия (в формате ДД.ММ.ГГГГ):")
+        await state.set_state(UpdateEventSeries.waiting_for_end_date)
+    except ValueError:
+        await message.answer("Неправильный формат даты. Попробуйте снова (ДД.ММ.ГГГГ).")
+
+
+@dispatcher.message(UpdateEventSeries.waiting_for_end_date)
+async def update_event_series_end_date(message: types.Message, state: FSMContext):
+    if message.text.lower() == "stop":
+        await state.clear()
+        await message.answer("Создание мероприятия прервано.")
+        return
+    try:
+        new_end_date = datetime.strptime(message.text, "%d.%m.%Y").date()
+        data = await state.get_data()
+        new_start_date = data.get('new_start_date')
+
+        # Проверка, что дата окончания не раньше даты начала
+        if new_end_date < new_start_date:
+            await message.answer("Дата окончания не может быть раньше даты начала. Попробуйте снова.")
+            return
+
+        await state.update_data(new_end_date=new_end_date)
+        await message.answer("Введите новое описание мероприятия:")
+        await state.set_state(UpdateEventSeries.waiting_for_description)
+    except ValueError:
+        await message.answer("Неправильный формат даты. Попробуйте снова (ДД.ММ.ГГГГ).")
+
+
+@dispatcher.message(UpdateEventSeries.waiting_for_description)
+async def update_event_series_description(message: types.Message, state: FSMContext):
+    if message.text.lower() == "stop":
+        await state.clear()
+        await message.answer("Создание мероприятия прервано.")
+        return
+
+    new_description = message.text
+    await state.update_data(new_description=new_description)
+    await message.answer("Введите новый URL фото мероприятия:")
+    await state.set_state(UpdateEventSeries.waiting_for_photo_url)
+
+
+@dispatcher.message(UpdateEventSeries.waiting_for_photo_url)
+async def update_event_series_photo_url(message: types.Message, state: FSMContext):
+    if message.text.lower() == "stop":
+        await state.clear()
+        await message.answer("Создание мероприятия прервано.")
+        return
+
+    new_image_url = message.text
+    data = await state.get_data()
+    series_id = data['series_id']
+    new_name = data['new_name']
+    new_start_date = data['new_start_date']
+    new_end_date = data['new_end_date']
+    new_description = data['new_description']
+
+    db: Session = next(get_db())
+    event_series = db.query(EventSeries).filter(
+        EventSeries.id == series_id).first()
+
+    if event_series:
+        event_series.name = new_name
+        event_series.start_date = new_start_date
+        event_series.end_date = new_end_date
+        event_series.description = new_description
+        event_series.image_url = new_image_url
+        db.commit()
+
+        await message.answer(f"Мероприятие '{new_name}' успешно обновлено.")
+    else:
+        await message.answer("Мероприятие не найдено.")
+    await state.clear()
+
+
+@dispatcher.message(Command(commands=["update_event"]))
+@admin_only
+async def cmd_update_event(message: types.Message, state: FSMContext):
+    if message.text.lower() == "stop":
+        await state.clear()
+        await message.answer("Создание мероприятия прервано.")
+        return
+
+    db: Session = next(get_db())
+    event_series = db.query(EventSeries).all()
+
+    if event_series:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"{series.name}: {format_date(series.start_date, series.end_date)}",
+                callback_data=f"select_event_series_{series.id}")]
+            for series in event_series
+        ])
+        await message.answer("Выберите мероприятие, в котором нужно обновить событие:", reply_markup=keyboard)
+    else:
+        await message.answer("Нет мероприятий для обновления событий.")
+
+
+@dispatcher.callback_query(lambda c: c.data.startswith("select_event_series_"))
+async def select_event_series_for_update_event(callback: CallbackQuery, state: FSMContext):
+    series_id = int(callback.data.split("_")[3])
+    await state.update_data(series_id=series_id)
+    db: Session = next(get_db())
+    events = db.query(Event).filter(Event.series_id == series_id).all()
+
+    if events:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"{event.event}: {format_date(event.date, event.date)}, {event.time}",
+                callback_data=f"update_selected_event_{event.id}")]
+            for event in events
+        ])
+        await callback.message.answer("Выберите событие для обновления:", reply_markup=keyboard)
+    else:
+        await callback.message.answer("Нет событий для обновления.")
+
+
+@dispatcher.callback_query(lambda c: c.data.startswith("update_selected_event_"))
+async def select_event_to_update(callback: CallbackQuery, state: FSMContext):
+    event_id = int(callback.data.split("_")[3])
+    await state.update_data(event_id=event_id)
+    await callback.message.answer("Введите новое название события:")
+    await state.set_state(UpdateEvent.waiting_for_event_name)
+
+
+@dispatcher.message(UpdateEvent.waiting_for_event_name)
+async def update_event_name(message: types.Message, state: FSMContext):
+    if message.text.lower() == "stop":
+        await state.clear()
+        await message.answer("Создание мероприятия прервано.")
+        return
+    new_event_name = message.text
+    await state.update_data(new_event_name=new_event_name)
+    await message.answer("Введите новую дату события (в формате ДД.ММ.ГГГГ):")
+    await state.set_state(UpdateEvent.waiting_for_event_date)
+
+
+@dispatcher.message(UpdateEvent.waiting_for_event_date)
+async def update_event_date(message: types.Message, state: FSMContext):
+    if message.text.lower() == "stop":
+        await state.clear()
+        await message.answer("Создание мероприятия прервано.")
+        return
+    try:
+        new_event_date = datetime.strptime(message.text, "%d.%m.%Y").date()
+        await state.update_data(new_event_date=new_event_date)
+        await message.answer("Введите новое время события (в формате ЧЧ:ММ - ЧЧ:ММ):")
+        await state.set_state(UpdateEvent.waiting_for_event_time)
+    except ValueError:
+        await message.answer("Неправильный формат даты. Попробуйте снова (ДД.ММ.ГГГГ).")
+
+
+@dispatcher.message(UpdateEvent.waiting_for_event_time)
+async def update_event_time(message: types.Message, state: FSMContext):
+    if message.text.lower() == "stop":
+        await state.clear()
+        await message.answer("Создание мероприятия прервано.")
+        return
+
+    time_input = message.text.strip()
+    try:
+        start_time_str, end_time_str = time_input.split('-')
+        start_time = datetime.strptime(start_time_str.strip(), "%H:%M").time()
+        end_time = datetime.strptime(end_time_str.strip(), "%H:%M").time()
+
+        if start_time >= end_time:
+            await message.answer("Время начала не может быть позже или равно времени окончания. Попробуйте снова.")
+            return
+
+        await state.update_data(new_event_time=f"{start_time.strftime('%H:%M')} - {end_time.strftime('%H:%M')}")
+        await message.answer("Введите новое место проведения события:")
+        await state.set_state(UpdateEvent.waiting_for_location)
+
+    except ValueError:
+        await message.answer("Неправильный формат времени. Попробуйте снова (ЧЧ:ММ - ЧЧ:ММ).")
+
+
+@dispatcher.message(UpdateEvent.waiting_for_location)
+async def update_event_location(message: types.Message, state: FSMContext):
+    if message.text.lower() == "stop":
+        await state.clear()
+        await message.answer("Создание мероприятия прервано.")
+        return
+
+    new_location = message.text
+    await state.update_data(new_location=new_location)
+    await message.answer("Введите новый URL фото события:")
+    await state.set_state(UpdateEvent.waiting_for_photo_url)
+
+
+@dispatcher.message(UpdateEvent.waiting_for_photo_url)
+async def update_event_photo_url(message: types.Message, state: FSMContext):
+    if message.text.lower() == "stop":
+        await state.clear()
+        await message.answer("Создание мероприятия прервано.")
+        return
+
+    new_photo_url = message.text
+    data = await state.get_data()
+    event_id = data['event_id']
+    new_event_name = data['new_event_name']
+    new_event_date = data['new_event_date']
+    new_event_time = data['new_event_time']
+    new_location = data['new_location']
+
+    db: Session = next(get_db())
+    event = db.query(Event).filter(Event.id == event_id).first()
+
+    if event:
+        event.event = new_event_name
+        event.date = new_event_date
+        event.time = new_event_time
+        event.room = new_location
+        event.image_url = new_photo_url
+        db.commit()
+
+        await message.answer(f"Событие '{new_event_name}' успешно обновлено.")
+    else:
+        await message.answer("Событие не найдено.")
     await state.clear()
 
 
@@ -483,7 +765,7 @@ async def cmd_delete_event(message: types.Message, state: FSMContext):
 
 @dispatcher.callback_query(lambda c: c.data.startswith("delete_event_series_"))
 async def select_event_series_to_delete_event(callback: CallbackQuery, state: FSMContext):
-    series_id = int(callback.data.split("_")[3])  # Извлекаем series_id
+    series_id = int(callback.data.split("_")[3])
     await state.update_data(series_id=series_id)
     db: Session = next(get_db())
     events = db.query(Event).filter(Event.series_id == series_id).all()
@@ -532,281 +814,6 @@ async def confirm_delete_event(callback: CallbackQuery, state: FSMContext):
 @dispatcher.callback_query(lambda c: c.data == "cancel_delete_event")
 async def cancel_delete_event(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Удаление события отменено.")
-    await state.clear()
-
-
-@dispatcher.message(Command(commands=["update"]))
-@admin_only
-async def cmd_update_event_series(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-
-    db: Session = next(get_db())
-    event_series = db.query(EventSeries).all()
-
-    if event_series:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"{series.name} ({series.start_date} - {series.end_date})",
-                callback_data=f"update_event_series_{series.id}")]
-            for series in event_series
-        ])
-        await message.answer("Выберите мероприятие для редактирования:", reply_markup=keyboard)
-    else:
-        await message.answer("Нет мероприятий для редактирования.")
-
-
-@dispatcher.callback_query(lambda c: c.data.startswith("update_event_series_"))
-async def select_event_series_to_update(callback: CallbackQuery, state: FSMContext):
-    series_id = int(callback.data.split("_")[3])
-    await state.update_data(series_id=series_id)
-    await callback.message.answer("Введите новое название мероприятия:")
-    await state.set_state(UpdateEventSeries.waiting_for_name)
-
-
-@dispatcher.message(UpdateEventSeries.waiting_for_name)
-async def update_event_series_name(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-
-    new_name = message.text
-    await state.update_data(new_name=new_name)
-    await message.answer("Введите новую дату начала мероприятия (в формате YYYY-MM-DD):")
-    await state.set_state(UpdateEventSeries.waiting_for_start_date)
-
-
-@dispatcher.message(UpdateEventSeries.waiting_for_start_date)
-async def update_event_series_start_date(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-    new_start_date = message.text
-    await state.update_data(new_start_date=new_start_date)
-    await message.answer("Введите новую дату окончания мероприятия (в формате YYYY-MM-DD):")
-    await state.set_state(UpdateEventSeries.waiting_for_end_date)
-
-
-@dispatcher.message(UpdateEventSeries.waiting_for_end_date)
-async def update_event_series_end_date(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-    new_end_date = message.text
-    await state.update_data(new_end_date=new_end_date)
-    await message.answer("Введите новое описание мероприятия:")
-    await state.set_state(UpdateEventSeries.waiting_for_description)
-
-
-@dispatcher.message(UpdateEventSeries.waiting_for_description)
-async def update_event_series_description(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-
-    new_description = message.text
-    await state.update_data(new_description=new_description)
-    await message.answer("Введите новый URL фото мероприятия:")
-    await state.set_state(UpdateEventSeries.waiting_for_photo_url)
-
-
-@dispatcher.message(UpdateEventSeries.waiting_for_photo_url)
-async def update_event_series_photo_url(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-
-    new_image_url = message.text
-    data = await state.get_data()
-    series_id = data['series_id']
-    new_name = data['new_name']
-    new_start_date = data['new_start_date']
-    new_end_date = data['new_end_date']
-    new_description = data['new_description']
-
-    db: Session = next(get_db())
-    event_series = db.query(EventSeries).filter(
-        EventSeries.id == series_id).first()
-
-    if event_series:
-        event_series.name = new_name
-        event_series.start_date = new_start_date
-        event_series.end_date = new_end_date
-        event_series.description = new_description
-        event_series.image_url = new_image_url
-        db.commit()
-
-        await message.answer(f"Мероприятие '{new_name}' успешно обновлено.")
-    else:
-        await message.answer("Мероприятие не найдено.")
-    await state.clear()
-
-
-@dispatcher.message(Command(commands=["update_event"]))
-@admin_only
-async def cmd_update_event(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-
-    db: Session = next(get_db())
-    event_series = db.query(EventSeries).all()
-
-    if event_series:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"{series.name} ({series.start_date} - {series.end_date})",
-                callback_data=f"select_event_series_{series.id}")]
-            for series in event_series
-        ])
-        await message.answer("Выберите мероприятие, в котором нужно обновить событие:", reply_markup=keyboard)
-    else:
-        await message.answer("Нет мероприятий для обновления событий.")
-
-
-@dispatcher.callback_query(lambda c: c.data.startswith("select_event_series_"))
-async def select_event_series_for_update_event(callback: CallbackQuery, state: FSMContext):
-    series_id = int(callback.data.split("_")[3])
-    await state.update_data(series_id=series_id)
-    db: Session = next(get_db())
-    events = db.query(Event).filter(Event.series_id == series_id).all()
-
-    if events:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"{event.event} ({event.date} {event.time})",
-                callback_data=f"update_selected_event_{event.id}")]
-            for event in events
-        ])
-        await callback.message.answer("Выберите событие для обновления:", reply_markup=keyboard)
-    else:
-        await callback.message.answer("Нет событий для обновления.")
-
-
-@dispatcher.callback_query(lambda c: c.data.startswith("update_selected_event_"))
-async def select_event_to_update(callback: CallbackQuery, state: FSMContext):
-    event_id = int(callback.data.split("_")[3])
-    await state.update_data(event_id=event_id)
-    await callback.message.answer("Введите новое название события:")
-    await state.set_state(UpdateEvent.waiting_for_event_name)
-
-
-@dispatcher.message(UpdateEvent.waiting_for_event_name)
-async def update_event_name(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-    new_event_name = message.text
-    await state.update_data(new_event_name=new_event_name)
-    await message.answer("Введите новую дату события (в формате YYYY-MM-DD):")
-    await state.set_state(UpdateEvent.waiting_for_event_date)
-
-
-@dispatcher.message(UpdateEvent.waiting_for_event_date)
-async def update_event_date(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-    new_event_date = message.text
-    await state.update_data(new_event_date=new_event_date)
-    await message.answer("Введите новое время события (в формате HH:MM):")
-    await state.set_state(UpdateEvent.waiting_for_event_time)
-
-
-@dispatcher.message(UpdateEvent.waiting_for_event_time)
-async def update_event_time(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-
-    new_event_time = message.text
-    await state.update_data(new_event_time=new_event_time)
-    await message.answer("Введите новое место проведения события:")
-    await state.set_state(UpdateEvent.waiting_for_location)
-
-
-@dispatcher.message(UpdateEvent.waiting_for_location)
-async def update_event_location(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-    new_location = message.text
-    await state.update_data(new_location=new_location)
-    await message.answer("Введите новых спикеров (через запятую):")
-    await state.set_state(UpdateEvent.waiting_for_speakers)
-
-
-@dispatcher.message(UpdateEvent.waiting_for_speakers)
-async def update_event_speakers(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-
-    new_speakers = message.text
-    await state.update_data(new_speakers=new_speakers)
-    await message.answer("Введите новое описание события:")
-    await state.set_state(UpdateEvent.waiting_for_description)
-
-
-@dispatcher.message(UpdateEvent.waiting_for_description)
-async def update_event_description(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-
-    new_description = message.text
-    await state.update_data(new_description=new_description)
-    await message.answer("Введите новый URL фото события:")
-    await state.set_state(UpdateEvent.waiting_for_photo_url)
-
-
-@dispatcher.message(UpdateEvent.waiting_for_photo_url)
-async def update_event_photo_url(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
-
-    new_image_url = message.text
-    data = await state.get_data()
-    event_id = data['event_id']
-    new_event_name = data['new_event_name']
-    new_event_date = data['new_event_date']
-    new_event_time = data['new_event_time']
-    new_location = data['new_location']
-    new_speakers = data['new_speakers']
-    new_description = data['new_description']
-
-    db: Session = next(get_db())
-    event = db.query(Event).filter(Event.id == event_id).first()
-
-    if event:
-        event.event = new_event_name
-        event.date = new_event_date
-        event.time = new_event_time
-        event.room = new_location
-        event.speakers = new_speakers
-        event.description = new_description
-        event.image_url = new_image_url
-        db.commit()
-
-        await message.answer(f"Событие '{new_event_name}' успешно обновлено.")
-    else:
-        await message.answer("Событие не найдено.")
     await state.clear()
 
 
