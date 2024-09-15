@@ -1,7 +1,8 @@
 services:
   postgres:
-    image: postgres:14
+    image: postgres:latest
     restart: always
+    platform: linux/arm64 
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -16,12 +17,11 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: mg_symposium_bot
+    platform: linux/arm64 
     depends_on:
       - postgres
     ports:
       - "8000:8000"
-    volumes:
-      - .:/app
     command: make start
     env_file:
       - '.env.docker'

@@ -14,8 +14,9 @@ migrate:
 	poetry run alembic upgrade head
 
 
-# docker-compose exec postgres bash
-# psql -U MGSU -d symposium 
-# for connection into database 
+# With Docker
+dev:
+	docker compose up --build
 
-# docker-compose run app /bin/sh
+down:
+	docker compose down
