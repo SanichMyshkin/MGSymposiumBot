@@ -1,5 +1,5 @@
 from sqlalchemy import create_engine, Column, Integer, \
-    String, Date, ForeignKey, Time
+    String, Date, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 import os
@@ -20,7 +20,6 @@ class EventSeries(Base):
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     description = Column(String)  # Описание серии мероприятий
-    # Ссылка на фотографию серии мероприятий
     image_url = Column(String, nullable=True)
     events = relationship("Event", back_populates="series")
 
