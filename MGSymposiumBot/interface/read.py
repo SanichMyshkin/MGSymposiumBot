@@ -1,12 +1,11 @@
+# read.py
 import os
 from dotenv import load_dotenv
 from aiogram import Dispatcher, types
 from aiogram.filters import Command
-
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
-from sqlalchemy.orm import Session
-
+from sqlalchemy.future import select
 from models import Event, EventSeries, get_db
 from utils import is_url_valid, format_date
 
@@ -15,14 +14,16 @@ logo = os.getenv('MGSU_DEFAULT_LOGO')
 
 
 async def cmd_start(message: types.Message):
-    # Открытие сессии через контекстный менеджер
-    with next(get_db()) as db:  
+    async for db in get_db():
         try:
-            event_series = db.query(EventSeries).all()
+            result = await db.execute(select(EventSeries))
+            event_series = result.scalars().all()
         except Exception as e:
             await message.answer("Ошибка при получении списка мероприятий.")
             print(f"Error fetching event series: {e}")
             return
+        finally:
+            await db.close()  # Явно закрываем соединение после завершения работы
 
         if event_series:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -31,22 +32,29 @@ async def cmd_start(message: types.Message):
                     callback_data=f"series_{series.id}")]
                 for series in sorted(event_series, key=lambda s: s.start_date)
             ])
-            await message.answer_photo(photo=logo, caption="Список мероприятий:", reply_markup=keyboard)
+            if is_url_valid(logo):
+                await message.answer_photo(photo=logo, caption="Список мероприятий: ", reply_markup=keyboard)
+            else:
+                await message.answer("Список мероприятий: ", reply_markup=keyboard)
         else:
             await message.answer("Нет запланированных мероприятий.")
 
 
 async def show_events(callback: CallbackQuery):
     series_id = int(callback.data.split("_")[1])
-    # Открытие сессии через контекстный менеджер
-    with next(get_db()) as db:  
+    async for db in get_db():
         try:
-            events = db.query(Event).filter(Event.series_id == series_id).order_by(Event.date).all()
-            events_series = db.query(EventSeries).filter(EventSeries.id == series_id).first()
+            result = await db.execute(select(Event).filter(Event.series_id == series_id).order_by(Event.date))
+            events = result.scalars().all()
+
+            result_series = await db.execute(select(EventSeries).filter(EventSeries.id == series_id))
+            events_series = result_series.scalars().first()
         except Exception as e:
             await callback.message.answer("Ошибка при получении событий.")
             print(f"Error fetching events: {e}")
             return
+        finally:
+            await db.close()
 
         if events:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -56,13 +64,14 @@ async def show_events(callback: CallbackQuery):
                 for event in events
             ])
             series_details = (
-                f"<b>{events_series.name}</b>\n"
-                f"Дата начала: {events_series.start_date.strftime('%d.%m.%Y')}\n"
-                f"Дата окончания: {events_series.end_date.strftime('%d.%m.%Y')}\n"
+                f"<b>{events_series.name}</b>"
+                f"\nДата начала: {events_series.start_date.strftime('%d.%m.%Y')}"
+                f"\nДата окончания: {events_series.end_date.strftime('%d.%m.%Y')}"
             )
             if events_series.description and events_series.description != "-":
-                series_details += f"\nОписание: {events_series.description}\n"
-            if events_series.image_url and await is_url_valid(events_series.image_url):
+                series_details += f"\nОписание: {events_series.description}"
+
+            if events_series.image_url:
                 await callback.message.answer_photo(
                     photo=events_series.image_url,
                     caption=series_details,
@@ -81,14 +90,16 @@ async def show_events(callback: CallbackQuery):
 
 async def show_event_details(callback: CallbackQuery):
     event_id = int(callback.data.split("_")[1])
-    # Открытие сессии через контекстный менеджер
-    with next(get_db()) as db:  
+    async for db in get_db():
         try:
-            event = db.query(Event).filter(Event.id == event_id).first()
+            result = await db.execute(select(Event).filter(Event.id == event_id))
+            event = result.scalars().first()
         except Exception as e:
             await callback.message.answer("Ошибка при получении деталей события.")
             print(f"Error fetching event details: {e}")
             return
+        finally:
+            await db.close()
 
         if event:
             details = (
@@ -102,7 +113,7 @@ async def show_event_details(callback: CallbackQuery):
             if event.description and event.description != "-":
                 details += f"<b>Описание:</b> {event.description}\n"
 
-            if event.image_url and await is_url_valid(event.image_url):
+            if event.image_url:
                 await callback.message.answer_photo(
                     photo=event.image_url,
                     caption=details,

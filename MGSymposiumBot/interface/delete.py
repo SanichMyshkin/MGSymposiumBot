@@ -1,11 +1,12 @@
+from sqlalchemy import delete
 from aiogram import Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
-
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
 from models import Event, EventSeries, get_db
 from utils import admin_only
@@ -33,19 +34,23 @@ def register_delete_cmd(dp: Dispatcher):
 
 @admin_only
 async def cmd_delete_event_series(message: types.Message, state: FSMContext):
-    db: Session = next(get_db())
-    event_series = db.query(EventSeries).all()
+    async for db in get_db():
+        try:
+            result = await db.execute(select(EventSeries))
+            event_series = result.scalars().all()
 
-    if event_series:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"{series.name} ({series.start_date} - {series.end_date})",
-                callback_data=f"delete_series_{series.id}")]
-            for series in event_series
-        ])
-        await message.answer("Выберите мероприятие для удаления:", reply_markup=keyboard)
-    else:
-        await message.answer("Нет мероприятий для удаления.")
+            if event_series:
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"{series.name} ({series.start_date} - {series.end_date})",
+                        callback_data=f"delete_series_{series.id}")]
+                    for series in event_series
+                ])
+                await message.answer("Выберите мероприятие для удаления:", reply_markup=keyboard)
+            else:
+                await message.answer("Нет мероприятий для удаления.")
+        finally:
+            await db.close()
 
 
 async def delete_series(callback: CallbackQuery, state: FSMContext):
@@ -63,16 +68,21 @@ async def delete_series(callback: CallbackQuery, state: FSMContext):
 async def confirm_delete_series(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     series_id = data['series_id']
-    db: Session = next(get_db())
-    series = db.query(EventSeries).filter(EventSeries.id == series_id).first()
 
-    if series:
-        db.query(Event).filter(Event.series_id == series_id).delete()
-        db.delete(series)
-        db.commit()
-        await callback.message.answer(f"Мероприятие '{series.name}' и все его события удалены.")
-    else:
-        await callback.message.answer("Мероприятие не найдено.")
+    async for db in get_db():
+        try:
+            result = await db.execute(select(EventSeries).filter(EventSeries.id == series_id))
+            series = result.scalar_one_or_none()
+
+            if series:
+                await db.execute(delete(Event).where(Event.series_id == series_id))
+                await db.execute(delete(EventSeries).where(EventSeries.id == series_id))
+                await db.commit()
+                await callback.message.answer(f"Мероприятие '{series.name}' и все его события удалены.")
+            else:
+                await callback.message.answer("Мероприятие не найдено.")
+        finally:
+            await db.close()
     await state.clear()
 
 
@@ -83,37 +93,46 @@ async def cancel_delete(callback: CallbackQuery, state: FSMContext):
 
 @admin_only
 async def cmd_delete_event(message: types.Message, state: FSMContext):
-    db: Session = next(get_db())
-    event_series = db.query(EventSeries).all()
+    async for db in get_db():
+        try:
+            result = await db.execute(select(EventSeries))
+            event_series = result.scalars().all()
 
-    if event_series:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"{series.name} ({series.start_date} - {series.end_date})",
-                callback_data=f"delete_event_series_{series.id}")]
-            for series in event_series
-        ])
-        await message.answer("Выберите мероприятие, чтобы удалить событие:", reply_markup=keyboard)
-    else:
-        await message.answer("Нет мероприятий для удаления событий.")
+            if event_series:
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"{series.name} ({series.start_date} - {series.end_date})",
+                        callback_data=f"delete_event_series_{series.id}")]
+                    for series in event_series
+                ])
+                await message.answer("Выберите мероприятие, чтобы удалить событие:", reply_markup=keyboard)
+            else:
+                await message.answer("Нет мероприятий для удаления событий.")
+        finally:
+            await db.close()
 
 
 async def select_event_series_to_delete_event(callback: CallbackQuery, state: FSMContext):
     series_id = int(callback.data.split("_")[3])
     await state.update_data(series_id=series_id)
-    db: Session = next(get_db())
-    events = db.query(Event).filter(Event.series_id == series_id).all()
 
-    if events:
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"{event.event} ({event.date} {event.time})",
-                callback_data=f"delete_selected_event_{event.id}")]
-            for event in events
-        ])
-        await callback.message.answer("Выберите событие для удаления:", reply_markup=keyboard)
-    else:
-        await callback.message.answer("В этом мероприятии нет событий для удаления.")
+    async for db in get_db():
+        try:
+            result = await db.execute(select(Event).filter(Event.series_id == series_id))
+            events = result.scalars().all()
+
+            if events:
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text=f"{event.event} ({event.date} {event.time})",
+                        callback_data=f"delete_selected_event_{event.id}")]
+                    for event in events
+                ])
+                await callback.message.answer("Выберите событие для удаления:", reply_markup=keyboard)
+            else:
+                await callback.message.answer("В этом мероприятии нет событий для удаления.")
+        finally:
+            await db.close()
 
 
 async def delete_selected_event(callback: CallbackQuery, state: FSMContext):
@@ -131,16 +150,19 @@ async def confirm_delete_event(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     event_id = data['event_id']
 
-    db: Session = next(get_db())
-    event = db.query(Event).filter(Event.id == event_id).first()
+    async for db in get_db():
+        try:
+            result = await db.execute(select(Event).filter(Event.id == event_id))
+            event = result.scalar_one_or_none()
 
-    if event:
-        db.delete(event)
-        db.commit()
-        db.close()
-        await callback.message.answer(f"Событие '{event.event}' успешно удалено.")
-    else:
-        await callback.message.answer("Событие не найдено.")
+            if event:
+                await db.execute(delete(Event).where(Event.id == event_id))
+                await db.commit()
+                await callback.message.answer(f"Событие '{event.event}' успешно удалено.")
+            else:
+                await callback.message.answer("Событие не найдено.")
+        finally:
+            await db.close()
     await state.clear()
 
 

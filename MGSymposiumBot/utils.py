@@ -1,4 +1,4 @@
-import aiohttp
+import requests
 import os
 
 from functools import wraps
@@ -12,14 +12,19 @@ load_dotenv()
 ADMIN_ID = os.getenv('OWNER_ID')
 
 
-async def is_url_valid(url: str) -> bool:
-    """Проверяет, доступен ли URL (ответ с кодом 200)."""
+def is_url_valid(url: str) -> bool:
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.head(url) as response:
-                return response.status == 200
-    except Exception as e:
-        print(f"Error checking URL: {e}")
+        response = requests.get(url)
+        # Если статус код 200 (OK), то сайт доступен
+        if response.status_code == 200:
+            print(f"URL {url} доступен")
+            return True
+        else:
+            print(f"URL {url} недоступен, статус код: {response.status_code}")
+            return False
+    except requests.exceptions.RequestException as e:
+        # В случае ошибки соединения или недоступности ресурса
+        print(f"URL {url} недоступен. Ошибка: {e}")
         return False
 
 

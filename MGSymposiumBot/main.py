@@ -61,10 +61,10 @@ def register_handlers():
     register_delete_cmd(dispatcher)
 
 
-if __name__ == "__main__":
-    init_db()
+async def main():
+    await init_db()  # Добавляем await
     register_handlers()
+    await dispatcher.start_polling(bot)
 
-    async def main():
-        await dispatcher.start_polling(bot)
+if __name__ == "__main__":
     asyncio.run(main())

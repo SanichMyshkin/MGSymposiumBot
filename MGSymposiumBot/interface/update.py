@@ -1,12 +1,10 @@
 from datetime import datetime
-
 from aiogram import Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
-
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
 from models import Event, EventSeries, get_db
 from utils import admin_only, format_date
@@ -14,8 +12,7 @@ from states import UpdateEvent, UpdateEventSeries
 
 
 def register_update_cmd(dp: Dispatcher):
-    dp.message.register(cmd_update_event_series, Command(
-        commands=["update"]))
+    dp.message.register(cmd_update_event_series, Command(commands=["update"]))
     dp.callback_query.register(
         select_event_series_to_update, lambda c: c.data.startswith("update_event_series_"))
     dp.message.register(update_event_series_name,
@@ -54,19 +51,21 @@ async def cmd_update_event_series(message: types.Message, state: FSMContext):
         await message.answer("Редактирование мероприятия прервано.")
         return
 
-    db: Session = next(get_db())
-    event_series = db.query(EventSeries).all()
+    db: AsyncSession = await get_db().__anext__()
+    result = await db.execute(select(EventSeries))
+    event_series = result.scalars().all()
 
     if event_series:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"{series.name}: {format_date(series.start_date, series.end_date)}",
-                callback_data=f"update_event_series_{series.id}")]
+            [InlineKeyboardButton(text=f"{series.name}: {format_date(series.start_date, series.end_date)}",
+                                  callback_data=f"update_event_series_{series.id}")]
             for series in event_series
         ])
         await message.answer("Выберите мероприятие для редактирования:", reply_markup=keyboard)
     else:
         await message.answer("Нет мероприятий для редактирования.")
+
+    await db.close()
 
 
 async def select_event_series_to_update(callback: CallbackQuery, state: FSMContext):
@@ -130,17 +129,17 @@ async def update_event_series_description(message: types.Message, state: FSMCont
 
     new_description = message.text if message.text != "-" else '-'
     await state.update_data(new_description=new_description)
-    await message.answer("Введите новый URL фото мероприятия:")
+    await message.answer("Загрузите новую фотографию для мероприятия (или '-' для пропуска):")
     await state.set_state(UpdateEventSeries.waiting_for_photo_url)
 
 
 async def update_event_series_photo_url(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Редактирование мероприятия прервано.")
-        return
+    if text := message.text:
+        if text.lower() == "stop":
+            await state.clear()
+            await message.answer("Редактирование мероприятия прервано.")
+            return
 
-    new_image_url = message.text
     data = await state.get_data()
     series_id = data['series_id']
     new_name = data['new_name']
@@ -148,9 +147,8 @@ async def update_event_series_photo_url(message: types.Message, state: FSMContex
     new_end_date = data['new_end_date']
     new_description = data.get('new_description')
 
-    db: Session = next(get_db())
-    event_series = db.query(EventSeries).filter(
-        EventSeries.id == series_id).first()
+    db: AsyncSession = await get_db().__anext__()
+    event_series = await db.get(EventSeries, series_id)
 
     if event_series:
         event_series.name = new_name
@@ -158,12 +156,14 @@ async def update_event_series_photo_url(message: types.Message, state: FSMContex
         event_series.end_date = new_end_date
         if new_description:
             event_series.description = new_description
-        event_series.image_url = new_image_url
-        db.commit()
+        event_series.image_url = message.photo[-1].file_id if message.photo else None
+        await db.commit()
 
         await message.answer(f"Мероприятие '{new_name}' успешно обновлено.")
     else:
         await message.answer("Мероприятие не найдено.")
+
+    await db.close()
     await state.clear()
 
 
@@ -174,37 +174,41 @@ async def cmd_update_event(message: types.Message, state: FSMContext):
         await message.answer("Редактирование события прервано.")
         return
 
-    db: Session = next(get_db())
-    event_series = db.query(EventSeries).all()
+    db: AsyncSession = await get_db().__anext__()
+    result = await db.execute(select(EventSeries))
+    event_series = result.scalars().all()
 
     if event_series:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"{series.name}: {format_date(series.start_date, series.end_date)}",
-                callback_data=f"select_event_series_{series.id}")]
+            [InlineKeyboardButton(text=f"{series.name}: {format_date(series.start_date, series.end_date)}",
+                                  callback_data=f"select_event_series_{series.id}")]
             for series in event_series
         ])
         await message.answer("Выберите мероприятие, в котором нужно обновить событие:", reply_markup=keyboard)
     else:
         await message.answer("Нет мероприятий для обновления событий.")
 
+    await db.close()
+
 
 async def select_event_series_for_update_event(callback: CallbackQuery, state: FSMContext):
     series_id = int(callback.data.split("_")[3])
     await state.update_data(series_id=series_id)
-    db: Session = next(get_db())
-    events = db.query(Event).filter(Event.series_id == series_id).all()
+    db: AsyncSession = await get_db().__anext__()
+    result = await db.execute(select(Event).filter(Event.series_id == series_id))
+    events = result.scalars().all()
 
     if events:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"{event.event}: {format_date(event.date, event.date)}, {event.time}",
-                callback_data=f"update_selected_event_{event.id}")]
+            [InlineKeyboardButton(text=f"{event.event}: {format_date(event.date, event.date)}, {event.time}",
+                                  callback_data=f"update_selected_event_{event.id}")]
             for event in events
         ])
         await callback.message.answer("Выберите событие для обновления:", reply_markup=keyboard)
     else:
         await callback.message.answer("Нет событий для обновления.")
+
+    await db.close()
 
 
 async def select_event_to_update(callback: CallbackQuery, state: FSMContext):
@@ -233,7 +237,7 @@ async def update_event_date(message: types.Message, state: FSMContext):
     try:
         new_event_date = datetime.strptime(message.text, "%d.%m.%Y").date()
         await state.update_data(new_event_date=new_event_date)
-        await message.answer("Введите новое время события (в формате ЧЧ:ММ - ЧЧ:ММ):")
+        await message.answer("Введите новое время события (ЧЧ:ММ - ЧЧ:ММ):")
         await state.set_state(UpdateEvent.waiting_for_event_time)
     except ValueError:
         await message.answer("Неправильный формат даты. Попробуйте снова (ДД.ММ.ГГГГ).")
@@ -269,7 +273,7 @@ async def update_event_location(message: types.Message, state: FSMContext):
         await message.answer("Редактирование события прервано.")
         return
 
-    new_location = message.text if message.text != "-" else None
+    new_location = message.text
     await state.update_data(new_location=new_location)
     await message.answer("Введите новое описание события (или '-' для пропуска):")
     await state.set_state(UpdateEvent.waiting_for_description)
@@ -295,17 +299,17 @@ async def update_event_speakers(message: types.Message, state: FSMContext):
 
     new_speakers = message.text if message.text != "-" else '-'
     await state.update_data(new_speakers=new_speakers)
-    await message.answer("Введите новый URL фото события:")
+    await message.answer("Загрузите новую фотографию для события (или '-' для пропуска):")
     await state.set_state(UpdateEvent.waiting_for_photo_url)
 
 
 async def update_event_photo_url(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Редактирование события прервано.")
-        return
+    if text := message.text:
+        if text.lower() == "stop":
+            await state.clear()
+            await message.answer("Редактирование события прервано.")
+            return
 
-    new_photo_url = message.text
     data = await state.get_data()
     event_id = data['event_id']
     new_event_name = data['new_event_name']
@@ -315,8 +319,8 @@ async def update_event_photo_url(message: types.Message, state: FSMContext):
     new_speakers = data.get('new_speakers')
     new_description = data.get('new_description')
 
-    db: Session = next(get_db())
-    event = db.query(Event).filter(Event.id == event_id).first()
+    db: AsyncSession = await get_db().__anext__()
+    event = await db.get(Event, event_id)
 
     if event:
         event.event = new_event_name
@@ -327,11 +331,12 @@ async def update_event_photo_url(message: types.Message, state: FSMContext):
             event.speakers = new_speakers
         if new_description:
             event.description = new_description
-        event.image_url = new_photo_url
-        db.commit()
-        db.close()
+        event.image_url = message.photo[-1].file_id if message.photo else None
+        await db.commit()
 
         await message.answer(f"Событие '{new_event_name}' успешно обновлено.")
     else:
         await message.answer("Событие не найдено.")
+
+    await db.close()
     await state.clear()

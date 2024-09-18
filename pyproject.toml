@@ -8,11 +8,12 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.11"
 aiogram = "^3.13.0"
-sqlalchemy = "^2.0.34"
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.34"}
 psycopg2-binary = "^2.9.9"
 python-dotenv = "^1.0.1"
 alembic = "^1.13.2"
 pytest = "^8.3.3"
+asyncpg = "^0.29.0"
 
 [build-system]
 requires = ["poetry-core"]

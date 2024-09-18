@@ -1,11 +1,12 @@
 # create.py
 from datetime import datetime, time
 
+from sqlalchemy.future import select
 from aiogram import Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Event, EventSeries, get_db
 from utils import admin_only, format_date, check_optional_field
@@ -103,31 +104,31 @@ async def event_series_description(message: types.Message, state: FSMContext):
 
     description = check_optional_field(message.text)
     await state.update_data(description=description)
-    await message.answer("Введите ссылку на фотографию мероприятия (или '-' для пропуска):")
+    await message.answer("Загрузите фотографию для мероприятия (или '-' для пропуска):")
     await state.set_state(CreateEventSeries.waiting_for_image_url)
 
 
 async def event_series_image_url(message: types.Message, state: FSMContext):
-    if message.text.lower() == "stop":
-        await state.clear()
-        await message.answer("Создание мероприятия прервано.")
-        return
+    if text := message.text:
+        if text.lower() == "stop":
+            await state.clear()
+            await message.answer("Создание мероприятия прервано.")
+            return
 
-    image_url = check_optional_field(message.text)
     data = await state.get_data()
 
-    db: Session = next(get_db())
+    async for db in get_db():
+        new_series = EventSeries(
+            name=data['name'],
+            start_date=data['start_date'],
+            end_date=data['end_date'],
+            description=data['description'],
+            image_url=message.photo[-1].file_id if message.photo else None,
+        )
 
-    new_series = EventSeries(
-        name=data['name'],
-        start_date=data['start_date'],
-        end_date=data['end_date'],
-        description=data['description'],
-        image_url=image_url
-    )
-
-    db.add(new_series)
-    db.commit()
+        db.add(new_series)
+        await db.commit()
+        await db.close()
 
     await message.answer(f"Мероприятие '{data['name']}' создано.")
     await state.clear()
@@ -140,8 +141,8 @@ async def cmd_create_event(message: types.Message, state: FSMContext):
         await message.answer("Создание события прервано.")
         return
 
-    db: Session = next(get_db())
-    event_series = db.query(EventSeries).all()
+    db: AsyncSession = await get_db().__anext__()
+    event_series = await get_event_series(db)
     if event_series:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
@@ -153,6 +154,13 @@ async def cmd_create_event(message: types.Message, state: FSMContext):
         await state.set_state(CreateEvent.waiting_for_series)
     else:
         await message.answer("Нет доступных мероприятий для добавления событий.")
+    await db.close()
+
+
+async def get_event_series(db: AsyncSession):
+    result = await db.execute(select(EventSeries))
+    event_series = result.scalars().all()
+    return event_series
 
 
 async def select_series(callback: CallbackQuery, state: FSMContext):
@@ -246,30 +254,35 @@ async def event_description(message: types.Message, state: FSMContext):
         await message.answer("Создание события прервано.")
         return
 
-    description = message.text if message.text != "-" else "-"
+    description = message.text
     await state.update_data(description=description)
-    await message.answer("Введите ссылку на фотографию события:")
+    await message.answer("Загрузите фотографию для события (или '-' для пропуска)")
     await state.set_state(CreateEvent.waiting_for_image_url)
 
 
 async def event_image_url(message: types.Message, state: FSMContext):
-    image_url = message.text if message.text else None
-    data = await state.get_data()
-    db: Session = next(get_db())
+    if text := message.text:
+        if text.lower() == "stop":
+            await state.clear()
+            await message.answer("Создание события прервано.")
+            return
 
-    new_event = Event(
-        event=data['event_name'],
-        date=data['date'],
-        time=data['time'],
-        room=data['room'],
-        speakers=data.get('speakers'),
-        description=data.get('description'),
-        image_url=image_url,
-        series_id=data['series_id']
-    )
-    db.add(new_event)
-    db.commit()
-    db.close()
+    data = await state.get_data()
+    async for db in get_db():
+        new_event = Event(
+            event=data['event_name'],
+            date=data['date'],
+            time=data['time'],
+            room=data['room'],
+            speakers=data.get('speakers'),
+            description=data.get('description'),
+            image_url=message.photo[-1].file_id if message.photo else None,
+            series_id=data['series_id'])
+
+        db.add(new_event)
+        await db.commit()
 
     await message.answer(f"Событие '{data['event_name']}' создано.")
     await state.clear()
+
+    await db.close()
