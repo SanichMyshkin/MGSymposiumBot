@@ -2,7 +2,6 @@ services:
   postgres:
     image: postgres:latest
     restart: always
-    platform: linux/arm64 
     env_file:
       - '.env'
     volumes:
