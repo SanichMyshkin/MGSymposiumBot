@@ -62,7 +62,7 @@ def register_handlers():
 
 
 async def main():
-    await init_db()  # Добавляем await
+    await init_db()
     register_handlers()
     await dispatcher.start_polling(bot)
 

@@ -19,7 +19,7 @@ class EventSeries(Base):
     name = Column(String, nullable=False)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
-    description = Column(String)  # Описание серии мероприятий
+    description = Column(String)
     image_url = Column(String, nullable=True)
     events = relationship("Event", back_populates="series")
 
@@ -41,7 +41,7 @@ class Event(Base):
 
 engine = create_async_engine(DATABASE_URL, echo=True)
 
-# Создание асинхронной сессии
+
 AsyncSessionLocal = sessionmaker(
     bind=engine, class_=AsyncSession, expire_on_commit=False
 )

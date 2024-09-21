@@ -5,18 +5,7 @@ shell:
 	poetry shell
 
 start:
-	poetry run python MGSymposiumBot/main.py
+	docker compose up -d --build 
 
-create-migrate:
-	poetry run alembic revision --autogenerate -m "Initial migration"
-	
-migrate:
-	poetry run alembic upgrade head
-
-
-# With Docker
-dev:
-	docker compose up --build
-
-down:
+stop:
 	docker compose down

@@ -162,3 +162,4 @@ cython_debug/
 .idea/
 .env*
 .env.docker
+docker-compose-hub.yml

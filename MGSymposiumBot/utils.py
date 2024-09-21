@@ -15,7 +15,6 @@ ADMIN_ID = os.getenv('OWNER_ID')
 def is_url_valid(url: str) -> bool:
     try:
         response = requests.get(url)
-        # Если статус код 200 (OK), то сайт доступен
         if response.status_code == 200:
             print(f"URL {url} доступен")
             return True
@@ -23,7 +22,6 @@ def is_url_valid(url: str) -> bool:
             print(f"URL {url} недоступен, статус код: {response.status_code}")
             return False
     except requests.exceptions.RequestException as e:
-        # В случае ошибки соединения или недоступности ресурса
         print(f"URL {url} недоступен. Ошибка: {e}")
         return False
 

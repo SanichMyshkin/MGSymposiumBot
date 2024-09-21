@@ -284,5 +284,4 @@ async def event_image_url(message: types.Message, state: FSMContext):
 
     await message.answer(f"Событие '{data['event_name']}' создано.")
     await state.clear()
-
     await db.close()

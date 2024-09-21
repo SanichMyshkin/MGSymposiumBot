@@ -1,36 +1,68 @@
 # MGSymposiumBot
 
-# Бот для МГСУ
+MGSymposiumBot is an asynchronous Telegram bot built using Python and the aiogram library. The bot is designed to manage symposium data and includes full CRUD (Create, Read, Update, Delete) functionality for interacting with a PostgreSQL database using SQLAlchemy in asynchronous mode. Additionally, Docker is used for deployment and orchestration.
 
-def register_update_cmd(dp: Dispatcher):
-    dp.message.register(cmd_update_event_series, Command(
-        commands=["update"]))
-    dp.callback_query.register(
-        select_event_series_to_update, lambda c: c.data.startswith("update_event_series_"))
-    dp.message.register(update_event_series_name,
-                        UpdateEventSeries.waiting_for_name)
-    dp.message.register(update_event_series_start_date,
-                        UpdateEventSeries.waiting_for_start_date)
-    dp.message.register(update_event_series_end_date,
-                        UpdateEventSeries.waiting_for_end_date)
-    dp.message.register(update_event_series_description,
-                        UpdateEventSeries.waiting_for_description)
-    dp.message.register(update_event_series_photo_url,
-                        UpdateEventSeries.waiting_for_photo_url)
+### 🚀 Features
 
-    dp.message.register(cmd_update_event, Command(commands=["update_event"]))
-    dp.callback_query.register(select_event_series_for_update_event,
-                               lambda c: c.data.startswith("select_event_series_"))
-    dp.callback_query.register(
-        select_event_to_update, lambda c: c.data.startswith("update_selected_event_"))
-    dp.message.register(update_event_name, UpdateEvent.waiting_for_event_name)
-    dp.message.register(update_event_date, UpdateEvent.waiting_for_event_date)
-    dp.message.register(update_event_time, UpdateEvent.waiting_for_event_time)
-    dp.message.register(update_event_location,
-                        UpdateEvent.waiting_for_location)
-    dp.message.register(update_event_description,
-                        UpdateEvent.waiting_for_description)
-    dp.message.register(update_event_speakers,
-                        UpdateEvent.waiting_for_speakers)
-    dp.message.register(update_event_photo_url,
-                        UpdateEvent.waiting_for_photo_url)
+	•	Asynchronous operations for smooth performance.
+	•	CRUD functionality for managing symposium-related data.
+	•	PostgreSQL database integration using SQLAlchemy and asyncpg.
+	•	Docker support for easy setup and deployment.
+
+### 📦 Installation
+
+#### 1. Clone the repository:
+To get started with this project, follow the steps below:
+
+```
+git clone https://github.com/yourusername/MGSymposiumBot.git
+cd MGSymposiumBot
+```
+
+#### 2. Install dependencies using Poetry:
+You need to install [poetry](https://python-poetry.org/docs/#installation) to use this project
+```
+make install
+```
+
+#### 3. Activate the virtual environment:
+
+```
+make shell
+```
+
+#### 4. Create the .env file:
+In the root of your project directory, create a `.env` file with the following content:
+```
+BOT_TOKEN=<your-telegram-bot-token>
+OWNER_ID=<your-telegram-user-id>
+MGSU_DEFAULT_LOGO=<your-default-url-logo-token>
+DATABASE_URL=postgresql+asyncpg://MGSU:<your-db-password>@postgres:5432/symposium
+```
+
+Replace `<your-telegram-bot-token>`, `<your-telegram-user-id>`, `<your-default-url-logo-token>`, and `<your-db-password>` with your actual credentials.
+
+
+### 🛠️ Run project
+
+To run the project use the following command:
+
+```
+make start
+```
+
+
+
+### 🧑‍💻 Usage
+
+Once the bot is running, it will automatically respond to user input based on the implemented business logic. Ensure your PostgreSQL database is set up correctly and connected via the .env configuration.
+
+### ⚙️ Technology Stack
+
+	•	Python 3.9
+	•	Aiogram 3.13.0 - A fully asynchronous Telegram Bot API framework.
+	•	SQLAlchemy (with asyncio) - ORM for database management.
+	•	PostgreSQL - Database used to store symposium data.
+	•	Asyncpg - PostgreSQL driver for asynchronous interaction.
+	•	Alembic - For handling database migrations.
+	•	Docker - For containerization and orchestration.
